@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atlas-navigation"
+version = "0.1.0"
+description = "Shared navigation memory and soft validation for AI agents working in Android codebases."
+readme = "ATLAS_CODEX_PLANNING_BRIEF.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Atlas contributors" }]
+dependencies = []
+
+[project.scripts]
+atlas = "atlas.cli:main"
+
+[tool.setuptools]
+packages = ["atlas"]
