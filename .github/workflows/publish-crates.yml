@@ -1,0 +1,54 @@
+name: Publish crates
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run cargo publish with --dry-run"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-crates
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish workspace crates
+    runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Package workspace
+        run: cargo package --workspace
+      - name: Publish crates in dependency order
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          packages=(
+            minimap-schemas
+            minimap-core
+            minimap-android
+            minimap-repo
+            minimap-graph
+            minimap-cli
+          )
+
+          for package in "${packages[@]}"; do
+            if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+              cargo publish -p "$package" --dry-run
+            else
+              cargo publish -p "$package"
+              sleep 30
+            fi
+          done

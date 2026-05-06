@@ -9,6 +9,18 @@ agents reuse known routes instead of rediscovering the UI.
 
 ## Install
 
+With Homebrew, after the tap is published:
+
+```bash
+brew install himattm/minimap/minimap
+```
+
+With Cargo, after the crates are published:
+
+```bash
+cargo install minimap-cli
+```
+
 From source:
 
 ```bash
@@ -21,7 +33,9 @@ From a checkout:
 cargo build -p minimap-cli --bin minimap
 ```
 
-Release binaries are published from GitHub releases for macOS and Linux.
+Release binaries are published from GitHub releases for macOS, Linux, and
+Windows. See [docs/RELEASING.md](docs/RELEASING.md) for maintainer release
+steps.
 
 ## Basic Workflow
 
