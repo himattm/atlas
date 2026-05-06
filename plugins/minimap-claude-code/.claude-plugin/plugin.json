@@ -1,0 +1,17 @@
+{
+  "name": "minimap",
+  "description": "Minimap skills for Claude Code: route reuse and first-run mapping for Android app navigation memory.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Matt McKenna"
+  },
+  "repository": "https://github.com/himattm/minimap",
+  "license": "Apache-2.0",
+  "keywords": [
+    "android",
+    "minimap",
+    "navigation",
+    "agents",
+    "testing"
+  ]
+}

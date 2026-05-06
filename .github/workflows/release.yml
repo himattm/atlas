@@ -31,8 +31,8 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin: atlas
+          bin: minimap
           target: ${{ matrix.target }}
-          archive: atlas-${{ matrix.target }}
+          archive: minimap-${{ matrix.target }}
           checksum: sha256
           token: ${{ secrets.GITHUB_TOKEN }}

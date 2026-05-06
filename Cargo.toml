@@ -1,20 +1,20 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/atlas-cli",
-  "crates/atlas-android",
-  "crates/atlas-core",
-  "crates/atlas-schemas",
-  "crates/atlas-repo",
-  "crates/atlas-graph",
-  "crates/atlas-test-support",
+  "crates/minimap-cli",
+  "crates/minimap-android",
+  "crates/minimap-core",
+  "crates/minimap-schemas",
+  "crates/minimap-repo",
+  "crates/minimap-graph",
+  "crates/minimap-test-support",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
-repository = "https://github.com/himattm/atlas"
+license = "Apache-2.0"
+repository = "https://github.com/himattm/minimap"
 readme = "README.md"
 description = "Shared navigation memory and soft validation for AI agents working in Android codebases."
 keywords = ["android", "cli", "agents", "automation", "testing"]

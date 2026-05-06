@@ -25,4 +25,4 @@ jobs:
       - name: Test
         run: cargo test
       - name: Build
-        run: cargo build -p atlas-cli --bin atlas
+        run: cargo build -p minimap-cli --bin minimap

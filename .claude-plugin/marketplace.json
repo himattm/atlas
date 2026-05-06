@@ -1,17 +1,17 @@
 {
-  "name": "atlas",
+  "name": "minimap",
   "owner": {
     "name": "Matt McKenna"
   },
   "metadata": {
-    "description": "Claude Code plugins for Atlas Android navigation memory.",
+    "description": "Claude Code plugins for Minimap Android navigation memory.",
     "version": "0.1.0"
   },
   "plugins": [
     {
-      "name": "atlas",
-      "source": "./plugins/atlas-claude-code",
-      "description": "Atlas route reuse and first-run mapping skills for Android codebases.",
+      "name": "minimap",
+      "source": "./plugins/minimap-claude-code",
+      "description": "Minimap route reuse and first-run mapping skills for Android codebases.",
       "version": "0.1.0",
       "author": {
         "name": "Matt McKenna"

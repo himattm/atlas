@@ -10,6 +10,6 @@ dist/
 *.egg-info/
 target/
 
-# Atlas runtime artifacts
-.atlas/runs/
-.atlas/state/
+# Minimap runtime artifacts
+.minimap/runs/
+.minimap/state/

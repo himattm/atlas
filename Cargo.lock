@@ -83,83 +83,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "atlas-android"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "atlas-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "atlas-android",
- "atlas-core",
- "atlas-graph",
- "atlas-repo",
- "atlas-schemas",
- "clap",
- "predicates",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "atlas-core"
-version = "0.1.0"
-dependencies = [
- "atlas-schemas",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "atlas-graph"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "atlas-repo",
- "atlas-schemas",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "atlas-repo"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "atlas-schemas",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "atlas-schemas"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "atlas-test-support"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -418,6 +341,83 @@ name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+
+[[package]]
+name = "minimap-android"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "minimap-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "clap",
+ "minimap-android",
+ "minimap-core",
+ "minimap-graph",
+ "minimap-repo",
+ "minimap-schemas",
+ "predicates",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "minimap-core"
+version = "0.1.0"
+dependencies = [
+ "minimap-schemas",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "minimap-graph"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "minimap-repo",
+ "minimap-schemas",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "minimap-repo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "minimap-schemas",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "minimap-schemas"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "minimap-test-support"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "tempfile",
+]
 
 [[package]]
 name = "normalize-line-endings"

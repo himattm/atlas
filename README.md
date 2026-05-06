@@ -1,10 +1,10 @@
-# Atlas
+# Minimap
 
 Give AI agents a map of your Android app.
 
-Atlas is shared navigation memory and soft validation for AI agents working in
+Minimap is shared navigation memory and soft validation for AI agents working in
 Android codebases. It wraps documented Android CLI and `adb` primitives, records
-navigation runs, stores distilled graph artifacts under `.atlas/`, and lets later
+navigation runs, stores distilled graph artifacts under `.minimap/`, and lets later
 agents reuse known routes instead of rediscovering the UI.
 
 ## Install
@@ -12,13 +12,13 @@ agents reuse known routes instead of rediscovering the UI.
 From source:
 
 ```bash
-cargo install --git https://github.com/himattm/atlas atlas-cli
+cargo install --git https://github.com/himattm/minimap minimap-cli
 ```
 
 From a checkout:
 
 ```bash
-cargo build -p atlas-cli --bin atlas
+cargo build -p minimap-cli --bin minimap
 ```
 
 Release binaries are published from GitHub releases for macOS and Linux.
@@ -28,47 +28,47 @@ Release binaries are published from GitHub releases for macOS and Linux.
 Initialize a repo:
 
 ```bash
-atlas init --agents all
-atlas doctor
+minimap init --agents all
+minimap doctor
 ```
 
 Explore an unknown route:
 
 ```bash
-atlas observe start article-detail
-atlas layout
-atlas tap --selector "text=Open" --reason "open article detail"
-atlas layout
-atlas observe stop
-atlas learn --from-current-run --stage
+minimap observe start article-detail
+minimap layout
+minimap tap --selector "text=Open" --reason "open article detail"
+minimap layout
+minimap observe stop
+minimap learn --from-current-run --stage
 ```
 
 Review the staged proposal, then explicitly accept it:
 
 ```bash
-atlas accept <proposal-id>
+minimap accept <proposal-id>
 ```
 
 Reuse and validate:
 
 ```bash
-atlas route article-detail --current-screen home
-atlas go article-detail --current-screen home
-atlas check --current
-atlas drift
-atlas validate --all
-atlas validate --all --execute --current-screen home
+minimap route article-detail --current-screen home
+minimap go article-detail --current-screen home
+minimap check --current
+minimap drift
+minimap validate --all
+minimap validate --all --execute --current-screen home
 ```
 
 ## First-Run Agent Mapping
 
-`atlas init --agents all` installs two repo-local skills for supported agents:
-`atlas-app-navigation` for normal route reuse and `atlas-first-run-mapping` for
+`minimap init --agents all` installs two repo-local skills for supported agents:
+`minimap-app-navigation` for normal route reuse and `minimap-first-run-mapping` for
 initial discovery.
 
 First-run mapping is token-intensive: the agent has to inspect Android layout
 JSON, decide what to tap, navigate the launched app, and record routes before
-Atlas can reuse the graph. Keep the first pass bounded to a few important flows.
+Minimap can reuse the graph. Keep the first pass bounded to a few important flows.
 Use the first-run skill once for an initial app map, or later only for a bounded
 reason such as a new feature area, a major UI redesign, a new auth/onboarding
 context, or explicit additional route coverage.
@@ -76,85 +76,85 @@ context, or explicit additional route coverage.
 Example prompt:
 
 ```text
-Use the atlas-first-run-mapping skill to perform first-run mapping for this
+Use the minimap-first-run-mapping skill to perform first-run mapping for this
 launched Android app. Start with the settings, profile, and article detail flows.
-Warn me before any especially broad exploration. Stage learned Atlas proposals,
+Warn me before any especially broad exploration. Stage learned Minimap proposals,
 but do not accept or commit them until I approve.
 ```
 
 The agent should use this loop for each route:
 
 ```bash
-atlas map --discover <route-name> --max-actions 5 --stage
-atlas layout
-atlas tap --selector "<kind>=<value>" --reason "<navigation reason>"
-atlas layout
-atlas map --discover <route-name> --max-actions 5 --stage --finish
+minimap map --discover <route-name> --max-actions 5 --stage
+minimap layout
+minimap tap --selector "<kind>=<value>" --reason "<navigation reason>"
+minimap layout
+minimap map --discover <route-name> --max-actions 5 --stage --finish
 ```
 
 Review staged proposals before accepting:
 
 ```bash
-atlas accept <proposal-id>
-atlas validate --all
+minimap accept <proposal-id>
+minimap validate --all
 ```
 
 ## Claude Code Plugin
 
-Claude Code users can install the same Atlas skills from this repo's plugin
+Claude Code users can install the same Minimap skills from this repo's plugin
 marketplace.
 
 From Claude Code, add the marketplace:
 
 ```text
-/plugin marketplace add himattm/atlas
+/plugin marketplace add himattm/minimap
 ```
 
 Then install the plugin:
 
 ```text
-/plugin install atlas@atlas
+/plugin install minimap@minimap
 ```
 
 For local development from a checkout:
 
 ```text
 /plugin marketplace add .
-/plugin install atlas@atlas
+/plugin install minimap@minimap
 ```
 
 The plugin includes:
 
-- `atlas-app-navigation` for normal Atlas route reuse and validation.
-- `atlas-first-run-mapping` for bounded, token-intensive initial app mapping.
+- `minimap-app-navigation` for normal Minimap route reuse and validation.
+- `minimap-first-run-mapping` for bounded, token-intensive initial app mapping.
 
 ## Product Rules
 
 - Raw Android layout JSON is not committed by default.
 - Redaction runs before hashing, normalization, or graph proposal generation.
-- Runtime data stays under `.atlas/runs/` and `.atlas/state/`, which are
-  gitignored by `atlas init`.
-- Atlas may stage graph updates automatically, but committed graph changes only
-  happen after `atlas accept`.
-- `android layout --diff` remains an Android in-session diff. Atlas graph drift
-  is reported by `atlas drift` and `atlas validate`.
+- Runtime data stays under `.minimap/runs/` and `.minimap/state/`, which are
+  gitignored by `minimap init`.
+- Minimap may stage graph updates automatically, but committed graph changes only
+  happen after `minimap accept`.
+- `android layout --diff` remains an Android in-session diff. Minimap graph drift
+  is reported by `minimap drift` and `minimap validate`.
 
 ## Live Device Smoke
 
 With a built and launched Android app plus `android` and `adb` on `PATH`:
 
 ```bash
-atlas doctor
-atlas layout
-atlas tap --selector "text=Settings" --reason "open settings"
-atlas check --current
+minimap doctor
+minimap layout
+minimap tap --selector "text=Settings" --reason "open settings"
+minimap check --current
 ```
 
-For a known route already committed under `.atlas/`:
+For a known route already committed under `.minimap/`:
 
 ```bash
-atlas go <route-or-screen> --current-screen <screen-name>
-atlas validate --all
+minimap go <route-or-screen> --current-screen <screen-name>
+minimap validate --all
 ```
 
 Live device tests are intentionally separate from CI. CI uses fake `android` and
