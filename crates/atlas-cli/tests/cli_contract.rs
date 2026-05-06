@@ -21,6 +21,10 @@ fn init_dry_run_reports_without_writing() {
         .as_array()
         .unwrap()
         .contains(&json!(".agents/skills/atlas-app-navigation/SKILL.md")));
+    assert!(payload["skill_paths"]
+        .as_array()
+        .unwrap()
+        .contains(&json!(".agents/skills/atlas-first-run-mapping/SKILL.md")));
 }
 
 #[test]

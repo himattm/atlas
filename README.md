@@ -61,18 +61,21 @@ atlas validate --all
 
 ## First-Run Agent Mapping
 
-`atlas init --agents all` installs the `atlas-app-navigation` skill into
-repo-local skill paths for supported agents. Point an agent at that skill when
-you want an initial app map.
+`atlas init --agents all` installs two repo-local skills for supported agents:
+`atlas-app-navigation` for normal route reuse and `atlas-first-run-mapping` for
+initial discovery.
 
 First-run mapping is token-intensive: the agent has to inspect Android layout
 JSON, decide what to tap, navigate the launched app, and record routes before
 Atlas can reuse the graph. Keep the first pass bounded to a few important flows.
+Use the first-run skill once for an initial app map, or later only for a bounded
+reason such as a new feature area, a major UI redesign, a new auth/onboarding
+context, or explicit additional route coverage.
 
 Example prompt:
 
 ```text
-Use the atlas-app-navigation skill to perform first-run mapping for this
+Use the atlas-first-run-mapping skill to perform first-run mapping for this
 launched Android app. Start with the settings, profile, and article detail flows.
 Warn me before any especially broad exploration. Stage learned Atlas proposals,
 but do not accept or commit them until I approve.

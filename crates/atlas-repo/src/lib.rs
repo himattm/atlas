@@ -11,7 +11,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const DEFAULT_SKILL_NAME: &str = "atlas-app-navigation";
+pub const DEFAULT_SKILL_NAME: &str = APP_NAVIGATION_SKILL_NAME;
+pub const APP_NAVIGATION_SKILL_NAME: &str = "atlas-app-navigation";
+pub const FIRST_RUN_MAPPING_SKILL_NAME: &str = "atlas-first-run-mapping";
 pub const GITIGNORE_ENTRIES: &[&str] = &[".atlas/runs/", ".atlas/state/"];
 
 pub const ATLAS_DIRS: &[&str] = &[
@@ -26,9 +28,9 @@ pub const ATLAS_DIRS: &[&str] = &[
     ".atlas/state",
 ];
 
-pub const SKILL_BODY: &str = r#"---
+pub const APP_NAVIGATION_SKILL_BODY: &str = r#"---
 name: atlas-app-navigation
-description: Use when working in an Android codebase and needing to navigate the launched app, perform first-run app mapping, inspect Android layout JSON, use android layout, use android layout --diff, tap UI elements, validate screens, learn routes, reuse known navigation, or update the repo's Atlas graph. Before calling android layout or raw adb tap commands directly, check Atlas first.
+description: Use when working in an Android codebase and needing to navigate the launched app, inspect Android layout JSON, use android layout, use android layout --diff, tap UI elements, validate screens, learn routes, reuse known navigation, or update the repo's Atlas graph. Before calling android layout or raw adb tap commands directly, check Atlas first.
 metadata:
   author: atlas
   version: "1.0"
@@ -39,12 +41,33 @@ metadata:
 Atlas is this repo's shared navigation memory and soft validation layer for AI agents working in this Android codebase.
 
 Use Atlas before raw Android layout or adb tap commands. Stage learned graph updates, but do not accept or commit them without explicit user approval.
+"#;
+
+pub const FIRST_RUN_MAPPING_SKILL_BODY: &str = r#"---
+name: atlas-first-run-mapping
+description: Use only when the user explicitly asks to perform first-run mapping, create an initial Atlas graph, map a new area of the app, explore a launched Android app for navigation memory, or record known routes from scratch. This is token-intensive and should be bounded, staged, and reviewed.
+metadata:
+  author: atlas
+  version: "1.0"
+---
+
+# Atlas First-Run Mapping Skill
+
+Atlas first-run mapping creates initial navigation memory for a launched Android app. This skill is intentionally separate from everyday Atlas navigation because it is expensive: the agent must inspect Android layout JSON, decide what to tap, navigate the app, and record routes before Atlas can reuse the graph.
+
+Stage learned graph updates, but do not accept or commit them without explicit user approval.
 
 ## First-Run Mapping Mode
 
 Use this mode when the user asks to map the app, create an initial Atlas graph, do first-run mapping, explore the launched app, record known routes, or build navigation memory from scratch.
 
-Warn the user before starting: first-run mapping is token-intensive because the agent must inspect Android layout JSON, decide what to tap, navigate the app, and record routes. Keep the run bounded by the user's requested scope. If no scope is given, map a small set of high-value flows first, then report what remains.
+Warn the user before starting: first-run mapping is token-intensive. Keep the run bounded by the user's requested scope. If no scope is given, map a small set of high-value flows first, then report what remains.
+
+Use this skill one time for an initial app map, or later only with a specific bounded reason:
+- A new feature area has no Atlas route yet.
+- A major UI redesign invalidated existing routes.
+- A separate app context needs mapping, such as logged-out, logged-in, onboarding, permission-gated, or feature-flagged states.
+- The user explicitly asks for additional route coverage.
 
 Prerequisites:
 - The Android app is already built, installed, launched, and on the screen where mapping should begin.
@@ -137,6 +160,7 @@ pub fn default_config() -> Value {
         },
         "skills": {
             "skill_name": DEFAULT_SKILL_NAME,
+            "skill_names": [APP_NAVIGATION_SKILL_NAME, FIRST_RUN_MAPPING_SKILL_NAME],
             "install_strategy": "multi-write-detected",
             "install_paths": [".agents/skills", ".codex/skills", ".skills", ".agent/skills", ".claude/skills", ".gemini/skills"]
         }
@@ -209,9 +233,11 @@ fn skill_paths_for_agents(agents: &[String]) -> Vec<String> {
             _ => &[],
         };
         for root in roots {
-            let path = format!("{root}/{DEFAULT_SKILL_NAME}/SKILL.md");
-            if !paths.contains(&path) {
-                paths.push(path);
+            for skill_name in [APP_NAVIGATION_SKILL_NAME, FIRST_RUN_MAPPING_SKILL_NAME] {
+                let path = format!("{root}/{skill_name}/SKILL.md");
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
             }
         }
     }
@@ -287,12 +313,20 @@ fn apply_init(root: &Path, changes: &[InitChange]) -> Result<()> {
                 if let Some(parent) = path.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                fs::write(path, SKILL_BODY)?;
+                fs::write(path, skill_body_for_path(&change.path))?;
             }
             _ => {}
         }
     }
     Ok(())
+}
+
+fn skill_body_for_path(path: &str) -> &'static str {
+    if path.contains(FIRST_RUN_MAPPING_SKILL_NAME) {
+        FIRST_RUN_MAPPING_SKILL_BODY
+    } else {
+        APP_NAVIGATION_SKILL_BODY
+    }
 }
 
 pub fn missing_gitignore_entries(root: &Path) -> Vec<String> {
@@ -687,6 +721,9 @@ mod tests {
         assert!(result
             .skill_paths
             .contains(&".agents/skills/atlas-app-navigation/SKILL.md".to_string()));
+        assert!(result
+            .skill_paths
+            .contains(&".agents/skills/atlas-first-run-mapping/SKILL.md".to_string()));
     }
 
     #[test]
@@ -703,17 +740,27 @@ mod tests {
     }
 
     #[test]
-    fn init_installs_first_run_mapping_skill_guidance() {
+    fn init_installs_separate_first_run_mapping_skill_guidance() {
         let temp = tempfile::tempdir().unwrap();
         run_init(temp.path(), false, "codex").unwrap();
         let skill = fs::read_to_string(
             temp.path()
-                .join(".agents/skills/atlas-app-navigation/SKILL.md"),
+                .join(".agents/skills/atlas-first-run-mapping/SKILL.md"),
         )
         .unwrap();
+        assert!(skill.contains("name: atlas-first-run-mapping"));
         assert!(skill.contains("First-Run Mapping Mode"));
         assert!(skill.contains("token-intensive"));
         assert!(skill.contains("do not accept or commit"));
         assert!(skill.contains("atlas learn --from-current-run --stage"));
+        assert!(skill.contains("Use this skill one time"));
+
+        let navigation_skill = fs::read_to_string(
+            temp.path()
+                .join(".agents/skills/atlas-app-navigation/SKILL.md"),
+        )
+        .unwrap();
+        assert!(navigation_skill.contains("name: atlas-app-navigation"));
+        assert!(!navigation_skill.contains("First-Run Mapping Mode"));
     }
 }

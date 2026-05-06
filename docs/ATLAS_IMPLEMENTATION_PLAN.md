@@ -66,7 +66,9 @@ All agent-facing commands emit JSON. The global `--json`, `--quiet`, and
 `--no-color` flags are accepted for compatibility with agent command templates.
 
 - `atlas init [--dry-run] [--agents auto|all|codex,claude,android-studio,gemini]`
-  creates Atlas directories, config, gitignore entries, and repo-local skills.
+  creates Atlas directories, config, gitignore entries, and repo-local skills:
+  `atlas-app-navigation` for everyday route reuse and
+  `atlas-first-run-mapping` for bounded, token-intensive initial discovery.
 - `atlas doctor --json` checks config, graph dirs, skills, `android`, `adb`,
   and gitignore coverage.
 - `atlas layout [--diff] --json` wraps `android layout` or the in-session Android
