@@ -1,7 +1,7 @@
 {
   "name": "atlas",
   "owner": {
-    "name": "Atlas"
+    "name": "Matt McKenna"
   },
   "metadata": {
     "description": "Claude Code plugins for Atlas Android navigation memory.",
@@ -14,7 +14,7 @@
       "description": "Atlas route reuse and first-run mapping skills for Android codebases.",
       "version": "0.1.0",
       "author": {
-        "name": "Atlas"
+        "name": "Matt McKenna"
       }
     }
   ]

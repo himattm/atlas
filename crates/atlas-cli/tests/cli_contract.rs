@@ -32,7 +32,9 @@ fn claude_plugin_marketplace_declares_atlas_skills() {
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let marketplace = read_json_path(&repo.join(".claude-plugin/marketplace.json"));
     assert_eq!(marketplace["name"], "atlas");
+    assert_eq!(marketplace["owner"]["name"], "Matt McKenna");
     assert_eq!(marketplace["plugins"][0]["name"], "atlas");
+    assert_eq!(marketplace["plugins"][0]["author"]["name"], "Matt McKenna");
     assert_eq!(
         marketplace["plugins"][0]["source"],
         "./plugins/atlas-claude-code"
@@ -40,6 +42,7 @@ fn claude_plugin_marketplace_declares_atlas_skills() {
 
     let plugin = read_json_path(&repo.join("plugins/atlas-claude-code/.claude-plugin/plugin.json"));
     assert_eq!(plugin["name"], "atlas");
+    assert_eq!(plugin["author"]["name"], "Matt McKenna");
 
     assert!(repo
         .join("plugins/atlas-claude-code/skills/atlas-app-navigation/SKILL.md")
