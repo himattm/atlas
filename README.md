@@ -59,6 +59,43 @@ atlas drift
 atlas validate --all
 ```
 
+## First-Run Agent Mapping
+
+`atlas init --agents all` installs the `atlas-app-navigation` skill into
+repo-local skill paths for supported agents. Point an agent at that skill when
+you want an initial app map.
+
+First-run mapping is token-intensive: the agent has to inspect Android layout
+JSON, decide what to tap, navigate the launched app, and record routes before
+Atlas can reuse the graph. Keep the first pass bounded to a few important flows.
+
+Example prompt:
+
+```text
+Use the atlas-app-navigation skill to perform first-run mapping for this
+launched Android app. Start with the settings, profile, and article detail flows.
+Warn me before any especially broad exploration. Stage learned Atlas proposals,
+but do not accept or commit them until I approve.
+```
+
+The agent should use this loop for each route:
+
+```bash
+atlas observe start <route-name>
+atlas layout
+atlas tap --selector "<kind>=<value>" --reason "<navigation reason>"
+atlas layout
+atlas observe stop
+atlas learn --from-current-run --stage
+```
+
+Review staged proposals before accepting:
+
+```bash
+atlas accept <proposal-id>
+atlas validate --all
+```
+
 ## Product Rules
 
 - Raw Android layout JSON is not committed by default.
