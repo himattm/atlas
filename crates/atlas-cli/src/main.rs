@@ -1,6 +1,13 @@
 use anyhow::Result;
+use atlas_android::{
+    layout_result, tap_label_result, tap_point_result, tap_selector_result, Adb, AndroidCli,
+    SubprocessRunner,
+};
 use atlas_graph::{exit_code_for_status, resolve_route};
-use atlas_repo::{accept_proposal, load_context, load_graph, run_init};
+use atlas_repo::{
+    accept_proposal, load_context, load_graph, observe_start, observe_stop, record_action_event,
+    record_observation_event, run_init, stage_observation_review_proposal,
+};
 use atlas_schemas::{canonical_json, AtlasResult, RESULT_SCHEMA_VERSION};
 use clap::{Parser, Subcommand};
 use serde_json::json;
@@ -31,14 +38,60 @@ enum Commands {
         agents: String,
     },
     Doctor,
+    Layout {
+        #[arg(long)]
+        diff: bool,
+    },
+    Tap {
+        #[arg(long)]
+        selector: Option<String>,
+        #[arg(long)]
+        point: Option<String>,
+        #[arg(long)]
+        label: Option<i64>,
+        #[arg(long)]
+        screenshot: Option<String>,
+        #[arg(long)]
+        reason: Option<String>,
+        #[arg(long, default_value = "verified")]
+        mode: String,
+    },
+    Observe {
+        #[command(subcommand)]
+        command: ObserveCommand,
+    },
+    Learn {
+        #[arg(long)]
+        from_current_run: bool,
+        #[arg(long)]
+        stage: bool,
+    },
     Route {
         target: String,
         #[arg(long)]
         current_screen: Option<String>,
     },
+    Go {
+        target: String,
+        #[arg(long)]
+        current_screen: Option<String>,
+        #[arg(long, default_value = "verified")]
+        mode: String,
+    },
+    Check {
+        #[arg(long)]
+        current: bool,
+        screen: Option<String>,
+    },
     Accept {
         proposal_id: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum ObserveCommand {
+    Start { name: String },
+    Stop,
 }
 
 fn main() {
@@ -77,6 +130,87 @@ fn run(cli: Cli) -> Result<i32> {
             print_json(&result);
             Ok(if ok { 0 } else { 1 })
         }
+        Commands::Layout { diff } => {
+            let mut android = AndroidCli::new(SubprocessRunner);
+            let result = layout_result(&mut android, diff)?;
+            let kind = if diff {
+                "android_layout_diff"
+            } else {
+                "android_layout"
+            };
+            record_observation_event(&root, kind, result["layout"].clone())?;
+            print_json(&result);
+            Ok(0)
+        }
+        Commands::Tap {
+            selector,
+            point,
+            label,
+            screenshot,
+            reason,
+            mode,
+        } => {
+            let mut android = AndroidCli::new(SubprocessRunner);
+            let mut adb = Adb::new(SubprocessRunner);
+            let result = if let Some(selector) = selector {
+                tap_selector_result(&mut android, &mut adb, &selector, reason.as_deref())?
+            } else if let Some(point) = point {
+                let (x, y) = parse_point(&point)?;
+                tap_point_result(&mut adb, x, y, &mode)?
+            } else if let Some(label) = label {
+                let screenshot = screenshot
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--label requires --screenshot"))?;
+                tap_label_result(&mut android, &mut adb, label, screenshot)?
+            } else {
+                anyhow::bail!("tap requires --selector, --point, or --label");
+            };
+            record_action_event(&root, "tap", result["action"].clone(), reason.as_deref())?;
+            print_json(&result);
+            Ok(0)
+        }
+        Commands::Observe { command } => match command {
+            ObserveCommand::Start { name } => {
+                let run = observe_start(&root, &name)?;
+                print_json(&json!({
+                    "schema_version": RESULT_SCHEMA_VERSION,
+                    "status": "ok",
+                    "summary": "observation started",
+                    "run": run
+                }));
+                Ok(0)
+            }
+            ObserveCommand::Stop => {
+                let run = observe_stop(&root)?;
+                print_json(&json!({
+                    "schema_version": RESULT_SCHEMA_VERSION,
+                    "status": "ok",
+                    "summary": "observation stopped",
+                    "run": run
+                }));
+                Ok(0)
+            }
+        },
+        Commands::Learn {
+            from_current_run,
+            stage,
+        } => {
+            if !from_current_run || !stage {
+                anyhow::bail!("learn currently requires --from-current-run --stage");
+            }
+            let (proposal_id, path, metadata) = stage_observation_review_proposal(&root)?;
+            print_json(&json!({
+                "schema_version": RESULT_SCHEMA_VERSION,
+                "status": "changed_requires_review",
+                "summary": "staged observation run review proposal",
+                "proposal_id": proposal_id,
+                "proposal_path": path.display().to_string(),
+                "raw_artifact_paths": [metadata.path],
+                "human_approval_required": true,
+                "recommended_next_command": format!("atlas accept {proposal_id} --json")
+            }));
+            Ok(1)
+        }
         Commands::Route {
             target,
             current_screen,
@@ -89,6 +223,83 @@ fn run(cli: Cli) -> Result<i32> {
             print_json(&serde_json::to_value(result)?);
             Ok(code)
         }
+        Commands::Go {
+            target,
+            current_screen,
+            mode,
+        } => {
+            let graph = load_graph(&root)?;
+            let context = load_context(&root);
+            let plan = resolve_route(&graph, &target, current_screen.as_deref(), &context);
+            let result = plan.to_result();
+            if result.status != "ok" {
+                let code = exit_code_for_status(&result.status);
+                print_json(&serde_json::to_value(result)?);
+                return Ok(code);
+            }
+            print_json(&json!({
+                "schema_version": RESULT_SCHEMA_VERSION,
+                "status": "ok",
+                "summary": "route execution planned",
+                "target": target,
+                "mode": mode,
+                "edge_ids": plan.edges.iter().map(|edge| edge.id.clone()).collect::<Vec<_>>(),
+                "preferred_path_used": plan.preferred_path_used,
+                "graph_fallback_used": plan.graph_fallback_used,
+                "estimated_layout_calls_saved": std::cmp::max(plan.edges.len(), 1)
+            }));
+            Ok(0)
+        }
+        Commands::Check { current, screen } => {
+            if current || screen.is_none() {
+                let mut android = AndroidCli::new(SubprocessRunner);
+                let layout = layout_result(&mut android, false)?;
+                print_json(&json!({
+                    "schema_version": RESULT_SCHEMA_VERSION,
+                    "status": "ok",
+                    "current_screen": {"status": "unknown"},
+                    "metrics": {
+                        "layout_calls_total": 1,
+                        "layout_json_returned_to_agent": false,
+                        "adb_taps_total": 0
+                    },
+                    "layout_observed": layout["layout"].is_object()
+                }));
+                Ok(0)
+            } else {
+                let graph = load_graph(&root)?;
+                let name = screen.unwrap();
+                let found = graph.screens.values().find(|candidate| {
+                    candidate.id == name
+                        || candidate.name == name
+                        || candidate.aliases.iter().any(|alias| alias == &name)
+                });
+                if let Some(screen) = found {
+                    let context = load_context(&root);
+                    let mismatches = context.mismatches(&screen.context_guard);
+                    if mismatches.is_empty() {
+                        print_json(&json!({
+                            "schema_version": RESULT_SCHEMA_VERSION,
+                            "status": "ok",
+                            "summary": format!("screen guard check for {}", screen.name),
+                            "data": {"screen": screen.name}
+                        }));
+                        Ok(0)
+                    } else {
+                        let result = atlas_schemas::AtlasResult::context_mismatch(mismatches);
+                        print_json(&serde_json::to_value(result)?);
+                        Ok(8)
+                    }
+                } else {
+                    print_json(&json!({
+                        "schema_version": RESULT_SCHEMA_VERSION,
+                        "status": "screen_unknown",
+                        "summary": format!("screen not found: {name}")
+                    }));
+                    Ok(5)
+                }
+            }
+        }
         Commands::Accept { proposal_id } => {
             let written = accept_proposal(&root, &proposal_id)?;
             print_json(&json!({
@@ -100,6 +311,13 @@ fn run(cli: Cli) -> Result<i32> {
             Ok(0)
         }
     }
+}
+
+fn parse_point(point: &str) -> Result<(i64, i64)> {
+    let (x, y) = point
+        .split_once(',')
+        .ok_or_else(|| anyhow::anyhow!("--point must be X,Y"))?;
+    Ok((x.trim().parse()?, y.trim().parse()?))
 }
 
 fn doctor(root: &std::path::Path) -> serde_json::Value {

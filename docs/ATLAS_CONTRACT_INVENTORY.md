@@ -1,25 +1,25 @@
 # Atlas CLI Contract Inventory
 
-This document freezes the current Python CLI as the migration oracle for the
-Rust rewrite. Rust must preserve these contracts unless a migration note
-explicitly approves a change.
+This document records the contract that was ported from the Python reference
+implementation before the Python package was removed. Rust must preserve these
+contracts unless a migration note explicitly approves a change.
 
-| Command | Python status | Rust migration status | Writes files | Android CLI | adb |
+| Command | Former Python status | Rust status | Writes files | Android CLI | adb |
 |---|---:|---:|---:|---:|---:|
-| `atlas init` | implemented | preview in `atlas-rs` | yes | no | no |
-| `atlas doctor` | implemented | preview in `atlas-rs` | no | path check only | path check only |
-| `atlas layout` | implemented | pending | run artifacts when observing | yes | no |
-| `atlas layout --diff` | implemented | pending | run artifacts when observing | yes | no |
-| `atlas tap --selector` | implemented | pending | run artifacts when observing | yes | yes |
-| `atlas tap --point` | implemented | pending | run artifacts when observing | no | yes |
-| `atlas tap --label` | implemented | pending | run artifacts when observing | yes | yes |
-| `atlas observe start` | implemented | pending | yes, gitignored | no | no |
-| `atlas observe stop` | implemented | pending | yes, gitignored | no | no |
-| `atlas learn --from-current-run --stage` | implemented as review proposal | pending | proposals | no | no |
-| `atlas accept` | implemented | preview in `atlas-rs` | graph artifacts | no | no |
-| `atlas route` | implemented | preview in `atlas-rs` | no | no | no |
-| `atlas go` | implemented skeleton | pending | run artifacts when observing | yes | yes |
-| `atlas check` | implemented | pending | no | yes for current | no |
+| `atlas init` | implemented | implemented | yes | no | no |
+| `atlas doctor` | implemented | implemented | no | path check only | path check only |
+| `atlas layout` | implemented | implemented | run artifacts when observing | yes | no |
+| `atlas layout --diff` | implemented | implemented | run artifacts when observing | yes | no |
+| `atlas tap --selector` | implemented | implemented | run artifacts when observing | yes | yes |
+| `atlas tap --point` | implemented | implemented | run artifacts when observing | no | yes |
+| `atlas tap --label` | implemented | implemented | run artifacts when observing | yes | yes |
+| `atlas observe start` | implemented | implemented | yes, gitignored | no | no |
+| `atlas observe stop` | implemented | implemented | yes, gitignored | no | no |
+| `atlas learn --from-current-run --stage` | implemented as review proposal | implemented | proposals | no | no |
+| `atlas accept` | implemented | implemented | graph artifacts | no | no |
+| `atlas route` | implemented | implemented | no | no | no |
+| `atlas go` | implemented skeleton | implemented as route plan output | run artifacts when observing | no | no |
+| `atlas check` | implemented | implemented | no | yes for current | no |
 | `atlas validate` | not implemented | pending | proposals/state | yes | maybe |
 | `atlas drift` | not implemented | pending | proposals | yes | no |
 | `atlas repair` | not implemented | pending | proposals | maybe | maybe |
@@ -27,7 +27,7 @@ explicitly approves a change.
 
 ## Stable Exit Codes
 
-The Python implementation currently uses:
+The Rust implementation preserves this mapping:
 
 ```text
 0  success
@@ -42,8 +42,8 @@ The Python implementation currently uses:
 ```
 
 The migration plan originally listed privacy and unsupported-schema-specific
-codes, but Rust preview follows the Python mapping until a deliberate contract
-change is approved.
+codes, but Rust follows the existing mapping until a deliberate contract change
+is approved.
 
 ## Golden Fixture Policy
 
@@ -59,5 +59,6 @@ expected file writes
 volatile fields ignored during comparison
 ```
 
-The first fixture set should cover `init --dry-run`, `route` success,
-`route` context mismatch, and `accept`.
+The first Rust CLI fixture set covers `init --dry-run`, route context mismatch,
+`observe`/`learn`, `layout --diff`, and `tap --selector` with fake Android/adb
+executables.

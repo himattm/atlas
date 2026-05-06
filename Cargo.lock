@@ -83,11 +83,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-android"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "atlas-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
+ "atlas-android",
  "atlas-graph",
  "atlas-repo",
  "atlas-schemas",

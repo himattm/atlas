@@ -1,7 +1,7 @@
 # Atlas Implementation Plan
 
 Atlas is shared navigation memory and soft validation for AI agents working in
-Android codebases. The v1 implementation is a Python stdlib CLI that wraps
+Android codebases. The v1 implementation is now a Rust CLI workspace that wraps
 documented Android CLI commands and `adb`, stores distilled navigation knowledge
 under `.atlas/`, and returns compact JSON results for agents.
 
@@ -11,57 +11,35 @@ under `.atlas/`, and returns compact JSON results for agents.
   config files are present.
 - There is no existing package, build system, test runner, Android integration,
   graph schema, or CLI.
-- The implementation can choose a conservative stdlib-first Python layout to
-  avoid dependency download and make tests runnable immediately.
+- The original Python reference implementation has been removed after porting
+  the covered command surface to Rust and replacing Python tests with Cargo
+  unit/integration tests.
 - `.atlas/runs/` and `.atlas/state/` must be gitignored. Distilled graph files
   are intended to be committed.
 
 ## Architecture
 
-- Command layer: `atlas.cli` parses agent-facing commands and emits compact JSON.
-- Config layer: `atlas.config` loads `.atlas/config.json`, applies defaults, and
-  validates schema basics.
-- Init and skills: `atlas.init_cmd` creates `.atlas/`, idempotent `.gitignore`
-  entries, repo-local `atlas-app-navigation` skills, and optional guidance.
-- Doctor: `atlas.doctor` checks environment, graph layout, gitignore, and skills.
-- Android adapters: `atlas.android` wraps documented Android CLI commands and
-  `adb shell input tap`.
-- Observation recorder: `atlas.observation` writes run traces under
-  `.atlas/runs/` only.
-- Redaction and normalization: `atlas.redaction` and `atlas.normalization` run
-  before hashing, persistence, or proposal generation.
-- Graph storage: `atlas.storage` reads per-object JSON files and computes runtime
-  indexes without committing a central index.
-- Matching: `atlas.matching` uses identity hash only as a fast path and falls
-  back to weighted similarity over stable element signatures.
-- Routing: `atlas.routing` resolves named routes and graph fallback with context
-  guards and fragility penalties.
-- Operations: `atlas.operations` composes layout, tap, check, route, and go
-  behavior into reusable command helpers.
+- Command layer: `crates/atlas-cli` parses agent-facing commands and emits
+  compact JSON.
+- Schema layer: `crates/atlas-schemas` owns committed artifact and result
+  contracts.
+- Repo layer: `crates/atlas-repo` manages `.atlas/`, deterministic JSON,
+  proposals, skills, gitignore entries, and observation runs.
+- Android layer: `crates/atlas-android` wraps documented Android CLI commands
+  and `adb shell input tap`.
+- Graph layer: `crates/atlas-graph` resolves named routes and graph fallback
+  with context guards.
 
 ## Repo Layout
 
 ```text
-atlas/
-  __init__.py
-  __main__.py
-  cli.py
-  config.py
-  init_cmd.py
-  doctor.py
-  android.py
-  observation.py
-  operations.py
-  models.py
-  storage.py
-  redaction.py
-  normalization.py
-  matching.py
-  routing.py
-tests/
-  test_init_doctor.py
-  test_graph_core.py
-  test_android_runtime.py
+crates/
+  atlas-cli/
+  atlas-schemas/
+  atlas-repo/
+  atlas-android/
+  atlas-graph/
+  atlas-test-support/
 docs/
   ATLAS_IMPLEMENTATION_PLAN.md
 ```
@@ -126,17 +104,13 @@ environment error, `7` schema/config error, and `8` context mismatch.
 
 ## Testing Strategy
 
-- Init/doctor tests use temp directories and verify idempotence, dry-run behavior,
-  gitignore entries, and skill installation.
-- Graph tests cover canonical JSON, context guard matching, redaction before
-  hashing, normalization, matching thresholds, route fallback, proposal staging,
-  and absence of a committed central index.
-- Android/runtime tests use fake command runners for documented command
-  construction, `android screen resolve` parsing, `adb shell input tap`, layout
-  diff semantics, observation recording, selector-not-found, and environment
-  errors.
-- CLI smoke tests should exercise JSON output and nonzero status mapping for
-  context mismatch and environment failures.
+- Rust unit tests cover schema/context behavior, canonical JSON, init
+  idempotence, graph fallback, and Android command composition.
+- Rust CLI integration tests use temp repos and fake `android`/`adb` executables
+  for `init`, `route`, `observe`, `learn`, `layout --diff`, and `tap --selector`.
+- Future parity tests should add live-device smoke coverage and richer
+  redaction/normalization fixtures before expanding `go` from plan output to
+  live route execution.
 
 ## Acceptance Demos
 

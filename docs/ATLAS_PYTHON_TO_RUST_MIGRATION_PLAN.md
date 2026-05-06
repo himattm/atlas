@@ -1,5 +1,13 @@
 # Atlas Python → Rust Migration Plan
 
+## Status Note
+
+The Python reference implementation has been removed after porting the covered
+CLI surface to Rust and replacing Python tests with Cargo unit/integration
+tests. This document remains as historical migration rationale and as a checklist
+for still-pending deeper product work such as richer normalization, drift,
+validation, repair, mapping, and live-device parity tests.
+
 ## Repo description
 
 **Give AI agents a map of your Android app.**

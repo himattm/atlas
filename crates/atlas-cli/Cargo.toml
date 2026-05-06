@@ -6,11 +6,12 @@ license.workspace = true
 description.workspace = true
 
 [[bin]]
-name = "atlas-rs"
+name = "atlas"
 path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+atlas-android = { path = "../atlas-android" }
 atlas-graph = { path = "../atlas-graph" }
 atlas-repo = { path = "../atlas-repo" }
 atlas-schemas = { path = "../atlas-schemas" }

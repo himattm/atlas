@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/atlas-cli",
+  "crates/atlas-android",
   "crates/atlas-schemas",
   "crates/atlas-repo",
   "crates/atlas-graph",

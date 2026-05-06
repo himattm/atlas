@@ -4,11 +4,12 @@ use atlas_schemas::{
     CONFIG_SCHEMA_VERSION, EDGE_SCHEMA_VERSION, PROPOSAL_SCHEMA_VERSION, ROUTE_SCHEMA_VERSION,
     SCREEN_SCHEMA_VERSION,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DEFAULT_SKILL_NAME: &str = "atlas-app-navigation";
 pub const GITIGNORE_ENTRIES: &[&str] = &[".atlas/runs/", ".atlas/state/"];
@@ -423,6 +424,154 @@ pub fn accept_proposal(root: &Path, id: &str) -> Result<Vec<PathBuf>> {
         written.push(path);
     }
     Ok(written)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObservationMetadata {
+    pub schema_version: String,
+    pub run_id: String,
+    pub name: String,
+    pub path: String,
+    pub status: String,
+    pub started_at: String,
+    #[serde(default)]
+    pub stopped_at: Option<String>,
+}
+
+pub fn observe_start(root: &Path, name: &str) -> Result<ObservationMetadata> {
+    let runs_dir = root.join(".atlas/runs");
+    fs::create_dir_all(&runs_dir)?;
+    let timestamp = unix_timestamp();
+    let run_id = format!("{timestamp}-{}", slugify(name));
+    let run_path = runs_dir.join(&run_id);
+    fs::create_dir_all(run_path.join("raw-layouts"))?;
+    fs::create_dir_all(run_path.join("layout-deltas"))?;
+    fs::create_dir_all(run_path.join("screenshots"))?;
+    let metadata = ObservationMetadata {
+        schema_version: "atlas.observation_run.v1".to_string(),
+        run_id: run_id.clone(),
+        name: name.to_string(),
+        path: run_path.display().to_string(),
+        status: "running".to_string(),
+        started_at: timestamp.to_string(),
+        stopped_at: None,
+    };
+    write_json(
+        &run_path.join("metadata.json"),
+        &serde_json::to_value(&metadata)?,
+    )?;
+    write_json(&run_path.join("actions.json"), &Value::Array(vec![]))?;
+    write_json(&run_path.join("observations.json"), &Value::Array(vec![]))?;
+    write_json(
+        &runs_dir.join("current.json"),
+        &json!({"schema_version": "atlas.current_run.v1", "run_id": run_id}),
+    )?;
+    Ok(metadata)
+}
+
+pub fn observe_current(root: &Path) -> Result<Option<ObservationMetadata>> {
+    let current_path = root.join(".atlas/runs/current.json");
+    if !current_path.exists() {
+        return Ok(None);
+    }
+    let current = read_json(&current_path)?;
+    let Some(run_id) = current.get("run_id").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let metadata_path = root.join(".atlas/runs").join(run_id).join("metadata.json");
+    if !metadata_path.exists() {
+        return Ok(None);
+    }
+    let metadata: ObservationMetadata = serde_json::from_value(read_json(&metadata_path)?)?;
+    if metadata.status == "running" {
+        Ok(Some(metadata))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn observe_stop(root: &Path) -> Result<ObservationMetadata> {
+    let Some(mut metadata) = observe_current(root)? else {
+        anyhow::bail!("No current observation run");
+    };
+    metadata.status = "stopped".to_string();
+    metadata.stopped_at = Some(unix_timestamp().to_string());
+    let metadata_path = PathBuf::from(&metadata.path).join("metadata.json");
+    write_json(&metadata_path, &serde_json::to_value(&metadata)?)?;
+    let _ = fs::remove_file(root.join(".atlas/runs/current.json"));
+    Ok(metadata)
+}
+
+pub fn record_observation_event(root: &Path, kind: &str, payload: Value) -> Result<()> {
+    let Some(metadata) = observe_current(root)? else {
+        return Ok(());
+    };
+    append_event(
+        &PathBuf::from(metadata.path).join("observations.json"),
+        kind,
+        payload,
+    )
+}
+
+pub fn record_action_event(
+    root: &Path,
+    kind: &str,
+    payload: Value,
+    reason: Option<&str>,
+) -> Result<()> {
+    let Some(metadata) = observe_current(root)? else {
+        return Ok(());
+    };
+    let mut event_payload = payload;
+    if let Some(reason) = reason {
+        event_payload["reason"] = Value::String(reason.to_string());
+    }
+    append_event(
+        &PathBuf::from(metadata.path).join("actions.json"),
+        kind,
+        event_payload,
+    )
+}
+
+fn append_event(path: &Path, kind: &str, payload: Value) -> Result<()> {
+    let mut values = if path.exists() {
+        read_json(path)?.as_array().cloned().unwrap_or_default()
+    } else {
+        vec![]
+    };
+    values.push(json!({
+        "schema_version": "atlas.observation_event.v1",
+        "timestamp": unix_timestamp().to_string(),
+        "kind": kind,
+        "payload": payload
+    }));
+    write_json(path, &Value::Array(values))
+}
+
+pub fn stage_observation_review_proposal(
+    root: &Path,
+) -> Result<(String, PathBuf, ObservationMetadata)> {
+    let Some(metadata) = observe_current(root)? else {
+        anyhow::bail!("No current observation run");
+    };
+    let proposal_id = format!("proposal-{}", metadata.run_id);
+    let proposal = json!({
+        "schema_version": PROPOSAL_SCHEMA_VERSION,
+        "id": proposal_id,
+        "kind": "observation_run_review",
+        "reason": "Review this observation run and convert stable navigation facts into graph objects.",
+        "changes": []
+    });
+    let path = proposal_path(root, proposal_id.as_str());
+    write_json(&path, &proposal)?;
+    Ok((proposal_id, path, metadata))
+}
+
+fn unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn slugify(value: &str) -> String {
