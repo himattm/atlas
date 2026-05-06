@@ -7,15 +7,14 @@ under `.atlas/`, and returns compact JSON results for agents.
 
 ## Current Repo Assessment
 
-- The repo is greenfield: only `ATLAS_CODEX_PLANNING_BRIEF.md` and agent hook
-  config files are present.
-- There is no existing package, build system, test runner, Android integration,
-  graph schema, or CLI.
+- The repo is a Rust workspace with a single distributable `atlas` binary.
 - The original Python reference implementation has been removed after porting
   the covered command surface to Rust and replacing Python tests with Cargo
   unit/integration tests.
-- `.atlas/runs/` and `.atlas/state/` must be gitignored. Distilled graph files
-  are intended to be committed.
+- `.atlas/runs/` and `.atlas/state/` are gitignored by `atlas init`. Distilled
+  graph files are intended to be committed after explicit proposal acceptance.
+- CI builds and validates the Rust workspace on Linux and macOS. Tagged
+  releases build GitHub release binaries for Linux and macOS targets.
 
 ## Architecture
 
@@ -63,10 +62,10 @@ Runtime repo state after `atlas init`:
 
 ## CLI Commands
 
-All agent-facing commands support `--json`; global `--quiet` and `--no-color`
-are accepted.
+All agent-facing commands emit JSON. The global `--json`, `--quiet`, and
+`--no-color` flags are accepted for compatibility with agent command templates.
 
-- `atlas init [--dry-run] [--yes] [--agents auto|all|codex,claude,android-studio,gemini]`
+- `atlas init [--dry-run] [--agents auto|all|codex,claude,android-studio,gemini]`
   creates Atlas directories, config, gitignore entries, and repo-local skills.
 - `atlas doctor --json` checks config, graph dirs, skills, `android`, `adb`,
   and gitignore coverage.
@@ -85,8 +84,12 @@ are accepted.
   default; `safe` resolves selectors every time; `fast` may use guarded tap
   caches but validates after transition.
 - `atlas check [--current|SCREEN] --json` evaluates lightweight expectations.
-- `atlas drift --json`, `atlas validate --json`, `atlas repair ... --stage`, and
-  `atlas map --discover --max-actions N --stage` are staged after the core loop.
+- `atlas drift --json`, `atlas validate --json`, and `atlas repair ... --stage`
+  classify divergence and stage review proposals without mutating committed
+  graph objects.
+- `atlas map --discover --max-actions N --stage` remains future v1 work. It
+  should build on the same observe/learn/proposal path rather than introducing
+  silent graph mutation.
 
 Exit codes follow the brief: `0` success, `1` meaningful change, `2` expectation
 failure, `3` route failed, `4` selector drift, `5` unknown screen, `6`
@@ -111,9 +114,11 @@ environment error, `7` schema/config error, and `8` context mismatch.
   idempotence, graph fallback, and Android command composition.
 - Rust CLI integration tests use temp repos and fake `android`/`adb` executables
   for `init`, `route`, `observe`, `learn`, `layout --diff`, and `tap --selector`.
+- CLI integration tests now cover drift, validation proposal staging, learned
+  screen/edge/route proposals after stopped runs, and route postcondition
+  verification after `go` executes edge taps.
 - Future parity tests should add live-device smoke coverage, richer
-  redaction/normalization fixtures, and route postcondition verification after
-  `go` executes edge taps.
+  redaction/normalization fixtures, and budgeted map discovery fixtures.
 
 ## Acceptance Demos
 
@@ -173,7 +178,8 @@ required context or choosing a compatible route.
 7. Proposal staging and explicit accept.
 8. Route lookup and graph fallback.
 9. Verified-mode navigation and checks.
-10. Drift/validate/repair and budgeted mapping.
+10. Drift/validate/repair.
+11. Budgeted mapping.
 
 ## Risks
 

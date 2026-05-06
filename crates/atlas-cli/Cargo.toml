@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "atlas"
@@ -11,11 +12,11 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
-atlas-android = { path = "../atlas-android" }
-atlas-core = { path = "../atlas-core" }
-atlas-graph = { path = "../atlas-graph" }
-atlas-repo = { path = "../atlas-repo" }
-atlas-schemas = { path = "../atlas-schemas" }
+atlas-android = { version = "0.1.0", path = "../atlas-android" }
+atlas-core = { version = "0.1.0", path = "../atlas-core" }
+atlas-graph = { version = "0.1.0", path = "../atlas-graph" }
+atlas-repo = { version = "0.1.0", path = "../atlas-repo" }
+atlas-schemas = { version = "0.1.0", path = "../atlas-schemas" }
 clap.workspace = true
 serde_json.workspace = true
 

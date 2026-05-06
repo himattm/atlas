@@ -387,6 +387,16 @@ pub fn proposal_path(root: &Path, id: &str) -> PathBuf {
         .join(format!("{}.json", slugify(id)))
 }
 
+pub fn stage_proposal_value(root: &Path, proposal: &Value) -> Result<PathBuf> {
+    let id = proposal
+        .get("id")
+        .and_then(Value::as_str)
+        .context("proposal must include id")?;
+    let path = proposal_path(root, id);
+    write_json(&path, proposal)?;
+    Ok(path)
+}
+
 pub fn accept_proposal(root: &Path, id: &str) -> Result<Vec<PathBuf>> {
     let value = read_json(&proposal_path(root, id))?;
     let proposal: Proposal = serde_json::from_value(value)?;
@@ -490,6 +500,27 @@ pub fn observe_current(root: &Path) -> Result<Option<ObservationMetadata>> {
     }
 }
 
+pub fn observe_current_or_latest(root: &Path) -> Result<Option<ObservationMetadata>> {
+    if let Some(current) = observe_current(root)? {
+        return Ok(Some(current));
+    }
+    let runs_dir = root.join(".atlas/runs");
+    if !runs_dir.exists() {
+        return Ok(None);
+    }
+    let mut metadata = Vec::new();
+    for entry in fs::read_dir(runs_dir)? {
+        let path = entry?.path();
+        let metadata_path = path.join("metadata.json");
+        if metadata_path.exists() {
+            let parsed: ObservationMetadata = serde_json::from_value(read_json(&metadata_path)?)?;
+            metadata.push(parsed);
+        }
+    }
+    metadata.sort_by(|left, right| left.started_at.cmp(&right.started_at));
+    Ok(metadata.pop())
+}
+
 pub fn observe_stop(root: &Path) -> Result<ObservationMetadata> {
     let Some(mut metadata) = observe_current(root)? else {
         anyhow::bail!("No current observation run");
@@ -551,8 +582,8 @@ fn append_event(path: &Path, kind: &str, payload: Value) -> Result<()> {
 pub fn stage_observation_review_proposal(
     root: &Path,
 ) -> Result<(String, PathBuf, ObservationMetadata)> {
-    let Some(metadata) = observe_current(root)? else {
-        anyhow::bail!("No current observation run");
+    let Some(metadata) = observe_current_or_latest(root)? else {
+        anyhow::bail!("No observation run available");
     };
     let proposal_id = format!("proposal-{}", metadata.run_id);
     let proposal = json!({

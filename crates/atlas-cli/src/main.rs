@@ -1,22 +1,23 @@
 use anyhow::Result;
 use atlas_android::{
     layout_result, tap_label_result, tap_point_result, tap_selector_result, Adb, AndroidCli,
-    SubprocessRunner,
+    CommandRunner, SubprocessRunner,
 };
 use atlas_core::{identity_hash, match_screen, normalize_layout};
 use atlas_graph::{exit_code_for_status, resolve_route};
 use atlas_repo::{
-    accept_proposal, load_context, load_graph, observe_start, observe_stop, record_action_event,
-    record_observation_event, run_init, stage_observation_review_proposal,
+    accept_proposal, load_context, load_graph, observe_current_or_latest, observe_start,
+    observe_stop, read_json, record_action_event, record_observation_event, run_init,
+    stage_observation_review_proposal, stage_proposal_value,
 };
 use atlas_schemas::NavigationEdge;
 use atlas_schemas::{canonical_json, AtlasResult, RESULT_SCHEMA_VERSION};
 use clap::{Parser, Subcommand};
 use serde_json::json;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Parser)]
-#[command(name = "atlas-rs")]
+#[command(name = "atlas")]
 #[command(
     about = "Shared navigation memory and soft validation for AI agents working in Android codebases."
 )]
@@ -84,6 +85,18 @@ enum Commands {
         #[arg(long)]
         current: bool,
         screen: Option<String>,
+    },
+    Drift,
+    Validate {
+        #[arg(long)]
+        all: bool,
+        #[arg(long = "changed-files")]
+        changed_files: Option<String>,
+    },
+    Repair {
+        target: String,
+        #[arg(long)]
+        stage: bool,
     },
     Accept {
         proposal_id: String,
@@ -200,7 +213,7 @@ fn run(cli: Cli) -> Result<i32> {
             if !from_current_run || !stage {
                 anyhow::bail!("learn currently requires --from-current-run --stage");
             }
-            let (proposal_id, path, metadata) = stage_observation_review_proposal(&root)?;
+            let (proposal_id, path, metadata) = stage_learned_or_review_proposal(&root)?;
             print_json(&json!({
                 "schema_version": RESULT_SCHEMA_VERSION,
                 "status": "changed_requires_review",
@@ -262,10 +275,36 @@ fn run(cli: Cli) -> Result<i32> {
                     .unwrap_or(0);
                 let action = action_result["action"].clone();
                 record_action_event(&root, "tap", action.clone(), edge.intent.as_deref())?;
+                let verification = match_current_screen(&root, &mut android)?;
+                layout_calls_total += verification["metrics"]["layout_calls_total"]
+                    .as_i64()
+                    .unwrap_or(0);
+                let reached = verification["current_screen"]["matched_screen"]
+                    .as_str()
+                    .map(|screen| screen == edge.to_screen)
+                    .unwrap_or(false);
+                if !reached {
+                    print_json(&json!({
+                        "schema_version": RESULT_SCHEMA_VERSION,
+                        "status": "route_broken",
+                        "summary": "route edge did not reach expected screen",
+                        "edge": edge.id,
+                        "expected_screen": edge.to_screen,
+                        "observed": verification["current_screen"],
+                        "metrics": {
+                            "layout_calls_total": layout_calls_total,
+                            "layout_json_returned_to_agent": false,
+                            "adb_taps_total": adb_taps_total
+                        },
+                        "recommended_action": "inspect the app and stage a graph repair proposal"
+                    }));
+                    return Ok(3);
+                }
                 executed.push(json!({
                     "edge": edge.id,
                     "selector": selector,
-                    "action": action
+                    "action": action,
+                    "verification": verification["current_screen"]
                 }));
             }
             print_json(&json!({
@@ -288,34 +327,19 @@ fn run(cli: Cli) -> Result<i32> {
             Ok(0)
         }
         Commands::Check { current, screen } => {
-            if current || screen.is_none() {
+            if current {
                 let mut android = AndroidCli::new(SubprocessRunner);
-                let layout = layout_result(&mut android, false)?;
-                let graph = load_graph(&root)?;
-                let normalized = normalize_layout(&layout["layout"]);
-                let identity = identity_hash(&normalized);
-                let screen_match = match_screen(&normalized, graph.screens.into_values());
+                let result = match_current_screen(&root, &mut android)?;
                 print_json(&json!({
                     "schema_version": RESULT_SCHEMA_VERSION,
                     "status": "ok",
-                    "current_screen": {
-                        "status": screen_match.status,
-                        "matched_screen": screen_match.matched_screen,
-                        "match_confidence": screen_match.match_confidence,
-                        "hash_matched": screen_match.hash_matched,
-                        "identity_hash": identity
-                    },
-                    "metrics": {
-                        "layout_calls_total": 1,
-                        "layout_json_returned_to_agent": false,
-                        "adb_taps_total": 0
-                    },
-                    "layout_observed": layout["layout"].is_object()
+                    "current_screen": result["current_screen"],
+                    "metrics": result["metrics"],
+                    "layout_observed": result["layout_observed"]
                 }));
                 Ok(0)
-            } else {
+            } else if let Some(name) = screen {
                 let graph = load_graph(&root)?;
-                let name = screen.unwrap();
                 let found = graph.screens.values().find(|candidate| {
                     candidate.id == name
                         || candidate.name == name
@@ -345,7 +369,54 @@ fn run(cli: Cli) -> Result<i32> {
                     }));
                     Ok(5)
                 }
+            } else {
+                let mut android = AndroidCli::new(SubprocessRunner);
+                let result = match_current_screen(&root, &mut android)?;
+                print_json(&json!({
+                    "schema_version": RESULT_SCHEMA_VERSION,
+                    "status": "ok",
+                    "current_screen": result["current_screen"],
+                    "metrics": result["metrics"],
+                    "layout_observed": result["layout_observed"]
+                }));
+                Ok(0)
             }
+        }
+        Commands::Drift => {
+            let mut android = AndroidCli::new(SubprocessRunner);
+            let result = drift_result(&root, &mut android)?;
+            let code = exit_code_for_status(result["status"].as_str().unwrap_or("ok"));
+            print_json(&result);
+            Ok(code)
+        }
+        Commands::Validate { all, changed_files } => {
+            let mut android = AndroidCli::new(SubprocessRunner);
+            let result = validate_result(&root, &mut android, all, changed_files.as_deref())?;
+            let code = exit_code_for_status(result["status"].as_str().unwrap_or("ok"));
+            print_json(&result);
+            Ok(code)
+        }
+        Commands::Repair { target, stage } => {
+            if !stage {
+                anyhow::bail!("repair currently requires --stage");
+            }
+            let proposal = json!({
+                "schema_version": "atlas.proposal.v1",
+                "id": format!("proposal-repair-{}", target.replace('/', "_")),
+                "kind": "selector_drift",
+                "reason": format!("Review and repair Atlas graph object {target}."),
+                "changes": []
+            });
+            let path = stage_proposal_value(&root, &proposal)?;
+            print_json(&json!({
+                "schema_version": RESULT_SCHEMA_VERSION,
+                "status": "changed_requires_review",
+                "summary": "staged repair proposal",
+                "proposal_id": proposal["id"],
+                "proposal_path": path.display().to_string(),
+                "human_approval_required": true
+            }));
+            Ok(1)
         }
         Commands::Accept { proposal_id } => {
             let written = accept_proposal(&root, &proposal_id)?;
@@ -365,6 +436,256 @@ fn parse_point(point: &str) -> Result<(i64, i64)> {
         .split_once(',')
         .ok_or_else(|| anyhow::anyhow!("--point must be X,Y"))?;
     Ok((x.trim().parse()?, y.trim().parse()?))
+}
+
+fn stage_learned_or_review_proposal(
+    root: &Path,
+) -> Result<(String, PathBuf, atlas_repo::ObservationMetadata)> {
+    let Some(metadata) = observe_current_or_latest(root)? else {
+        anyhow::bail!("No observation run available");
+    };
+    if let Some(proposal) = learned_proposal_for_run(&metadata)? {
+        let proposal_id = proposal["id"]
+            .as_str()
+            .unwrap_or("proposal-learned")
+            .to_string();
+        let path = stage_proposal_value(root, &proposal)?;
+        Ok((proposal_id, path, metadata))
+    } else {
+        stage_observation_review_proposal(root)
+    }
+}
+
+fn learned_proposal_for_run(
+    metadata: &atlas_repo::ObservationMetadata,
+) -> Result<Option<serde_json::Value>> {
+    let run_path = PathBuf::from(&metadata.path);
+    let observations = read_json(&run_path.join("observations.json"))?;
+    let actions = read_json(&run_path.join("actions.json"))?;
+    let observation_values = observations.as_array().cloned().unwrap_or_default();
+    let action_values = actions.as_array().cloned().unwrap_or_default();
+    if observation_values.len() < 2 || action_values.is_empty() {
+        return Ok(None);
+    }
+    let before_layout = observation_values[0]["payload"].clone();
+    let after_layout = observation_values[observation_values.len() - 1]["payload"].clone();
+    let action = action_values[0]["payload"].clone();
+    let Some(selector) = action["selector"].as_str() else {
+        return Ok(None);
+    };
+    let (selector_kind, selector_value) = selector
+        .split_once('=')
+        .map(|(kind, value)| (kind.to_string(), value.to_string()))
+        .unwrap_or_else(|| ("selector".to_string(), selector.to_string()));
+    let run_slug = slug_for_id(&metadata.name);
+    let start_screen_id = format!("screen_{}_start", run_slug);
+    let target_screen_id = format!("screen_{}", run_slug);
+    let edge_id = format!("edge_{}_start__{}", run_slug, run_slug);
+    let before_normalized = normalize_layout(&before_layout);
+    let after_normalized = normalize_layout(&after_layout);
+    let start_screen = json!({
+        "schema_version": "atlas.screen.v1",
+        "id": start_screen_id,
+        "name": format!("{}-start", run_slug),
+        "identity_hash": identity_hash(&before_normalized),
+        "normalized": before_normalized,
+        "aliases": []
+    });
+    let target_screen = json!({
+        "schema_version": "atlas.screen.v1",
+        "id": target_screen_id,
+        "name": metadata.name,
+        "identity_hash": identity_hash(&after_normalized),
+        "normalized": after_normalized,
+        "aliases": []
+    });
+    let edge = json!({
+        "schema_version": "atlas.edge.v1",
+        "id": edge_id,
+        "from_screen": start_screen["name"],
+        "to_screen": target_screen["name"],
+        "intent": format!("navigate to {}", metadata.name),
+        "action": {
+            "kind": "tap",
+            "description": action["reason"].as_str().unwrap_or("learned tap"),
+            "selector_candidates": [{
+                "kind": selector_kind,
+                "value": selector_value,
+                "score": 0.7
+            }]
+        },
+        "expectations": [{"kind": "screen_reached", "screen": target_screen["name"]}],
+        "learned_from": {"source": "observation_run", "run_id": metadata.run_id}
+    });
+    let route = json!({
+        "schema_version": "atlas.route.v1",
+        "name": metadata.name,
+        "start": {"screen": start_screen["name"]},
+        "target": {"screen": target_screen["name"]},
+        "preferred_edge_ids": [edge["id"]],
+        "allow_graph_fallback": true
+    });
+    Ok(Some(json!({
+        "schema_version": "atlas.proposal.v1",
+        "id": format!("proposal-learn-{}", metadata.run_id),
+        "kind": "learned_route",
+        "reason": "Learn screen, edge, and route objects from an observation run.",
+        "changes": [
+            {"op": "add", "object": start_screen},
+            {"op": "add", "object": target_screen},
+            {"op": "add", "object": edge},
+            {"op": "add", "object": route}
+        ]
+    })))
+}
+
+fn slug_for_id(value: &str) -> String {
+    let slug: String = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    slug.trim_matches('_').to_string()
+}
+
+fn match_current_screen<R: CommandRunner>(
+    root: &Path,
+    android: &mut AndroidCli<R>,
+) -> Result<serde_json::Value> {
+    let layout = layout_result(android, false)?;
+    let graph = load_graph(root)?;
+    let normalized = normalize_layout(&layout["layout"]);
+    let identity = identity_hash(&normalized);
+    let screen_match = match_screen(&normalized, graph.screens.into_values());
+    Ok(json!({
+        "current_screen": {
+            "status": screen_match.status,
+            "matched_screen": screen_match.matched_screen,
+            "match_confidence": screen_match.match_confidence,
+            "hash_matched": screen_match.hash_matched,
+            "identity_hash": identity
+        },
+        "metrics": {
+            "layout_calls_total": 1,
+            "layout_json_returned_to_agent": false,
+            "adb_taps_total": 0
+        },
+        "layout_observed": layout["layout"].is_object()
+    }))
+}
+
+fn drift_result<R: CommandRunner>(
+    root: &Path,
+    android: &mut AndroidCli<R>,
+) -> Result<serde_json::Value> {
+    let current = match_current_screen(root, android)?;
+    let current_screen = &current["current_screen"];
+    let status = match current_screen["status"]
+        .as_str()
+        .unwrap_or("screen_unknown")
+    {
+        "matched" => {
+            let graph = load_graph(root)?;
+            let context = load_context(root);
+            let matched = current_screen["matched_screen"].as_str();
+            let mismatches = matched
+                .and_then(|screen_name| {
+                    graph
+                        .screens
+                        .values()
+                        .find(|screen| screen.name == screen_name)
+                        .map(|screen| context.mismatches(&screen.context_guard))
+                })
+                .unwrap_or_default();
+            if mismatches.is_empty() {
+                "passed"
+            } else {
+                "context_mismatch"
+            }
+        }
+        "repair_candidate" => "selector_drift",
+        _ => "screen_unknown",
+    };
+    let mut result = json!({
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "status": status,
+        "summary": match status {
+            "passed" => "current app state matches committed graph",
+            "context_mismatch" => "current context does not satisfy matched screen guard",
+            "selector_drift" => "current screen is similar but below match threshold",
+            _ => "current app state is not known in committed graph"
+        },
+        "current_screen": current_screen,
+        "metrics": current["metrics"],
+        "human_approval_required": false
+    });
+    if matches!(status, "selector_drift" | "screen_unknown") {
+        let proposal = json!({
+            "schema_version": "atlas.proposal.v1",
+            "id": format!("proposal-drift-{}", current_screen["identity_hash"].as_str().unwrap_or("unknown").replace(':', "_")),
+            "kind": status,
+            "reason": "Review current app state drift against committed Atlas graph.",
+            "changes": []
+        });
+        let path = stage_proposal_value(root, &proposal)?;
+        result["proposal_id"] = proposal["id"].clone();
+        result["proposal_path"] = json!(path.display().to_string());
+        result["human_approval_required"] = json!(true);
+    }
+    Ok(result)
+}
+
+fn validate_result<R: CommandRunner>(
+    root: &Path,
+    android: &mut AndroidCli<R>,
+    all: bool,
+    changed_files: Option<&str>,
+) -> Result<serde_json::Value> {
+    let drift = drift_result(root, android)?;
+    let selected_routes = selected_routes_for_validation(root, all, changed_files)?;
+    let status = drift["status"].as_str().unwrap_or("passed");
+    Ok(json!({
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "status": status,
+        "summary": if status == "passed" { "validation passed" } else { "validation found graph drift" },
+        "drift": drift,
+        "selected_routes": selected_routes,
+        "impact_analysis": {
+            "mode": if all { "all" } else if changed_files.is_some() { "changed_files" } else { "current" },
+            "precise": false
+        }
+    }))
+}
+
+fn selected_routes_for_validation(
+    root: &Path,
+    all: bool,
+    changed_files: Option<&str>,
+) -> Result<Vec<String>> {
+    let graph = load_graph(root)?;
+    if all {
+        return Ok(graph.routes.keys().cloned().collect());
+    }
+    let Some(path) = changed_files else {
+        return Ok(Vec::new());
+    };
+    let changed = std::fs::read_to_string(path).unwrap_or_default();
+    let mut selected = Vec::new();
+    for route in graph.routes.values() {
+        let route_text = serde_json::to_string(&route.triggers).unwrap_or_default();
+        if changed
+            .lines()
+            .any(|line| !line.is_empty() && route_text.contains(line))
+        {
+            selected.push(route.name.clone());
+        }
+    }
+    Ok(selected)
 }
 
 fn selector_for_edge(edge: &NavigationEdge) -> Result<String> {

@@ -14,8 +14,11 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "git@github.com:himattm/atlas.git"
+repository = "https://github.com/himattm/atlas"
+readme = "README.md"
 description = "Shared navigation memory and soft validation for AI agents working in Android codebases."
+keywords = ["android", "cli", "agents", "automation", "testing"]
+categories = ["command-line-utilities", "development-tools::testing"]
 
 [workspace.dependencies]
 anyhow = "1.0"
