@@ -1,0 +1,21 @@
+{
+  "name": "atlas",
+  "owner": {
+    "name": "Atlas"
+  },
+  "metadata": {
+    "description": "Claude Code plugins for Atlas Android navigation memory.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "atlas",
+      "source": "./plugins/atlas-claude-code",
+      "description": "Atlas route reuse and first-run mapping skills for Android codebases.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Atlas"
+      }
+    }
+  ]
+}

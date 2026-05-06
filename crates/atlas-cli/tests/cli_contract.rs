@@ -28,6 +28,31 @@ fn init_dry_run_reports_without_writing() {
 }
 
 #[test]
+fn claude_plugin_marketplace_declares_atlas_skills() {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let marketplace = read_json_path(&repo.join(".claude-plugin/marketplace.json"));
+    assert_eq!(marketplace["name"], "atlas");
+    assert_eq!(marketplace["plugins"][0]["name"], "atlas");
+    assert_eq!(
+        marketplace["plugins"][0]["source"],
+        "./plugins/atlas-claude-code"
+    );
+
+    let plugin = read_json_path(&repo.join("plugins/atlas-claude-code/.claude-plugin/plugin.json"));
+    assert_eq!(plugin["name"], "atlas");
+
+    assert!(repo
+        .join("plugins/atlas-claude-code/skills/atlas-app-navigation/SKILL.md")
+        .exists());
+    let first_run_skill = fs::read_to_string(
+        repo.join("plugins/atlas-claude-code/skills/atlas-first-run-mapping/SKILL.md"),
+    )
+    .unwrap();
+    assert!(first_run_skill.contains("token-intensive"));
+    assert!(first_run_skill.contains("Use this skill one time"));
+}
+
+#[test]
 fn route_reports_context_mismatch_exit_code() {
     let temp = tempfile::tempdir().unwrap();
     write_json(

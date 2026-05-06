@@ -99,6 +99,35 @@ atlas accept <proposal-id>
 atlas validate --all
 ```
 
+## Claude Code Plugin
+
+Claude Code users can install the same Atlas skills from this repo's plugin
+marketplace.
+
+From Claude Code, add the marketplace:
+
+```text
+/plugin marketplace add himattm/atlas
+```
+
+Then install the plugin:
+
+```text
+/plugin install atlas@atlas
+```
+
+For local development from a checkout:
+
+```text
+/plugin marketplace add .
+/plugin install atlas@atlas
+```
+
+The plugin includes:
+
+- `atlas-app-navigation` for normal Atlas route reuse and validation.
+- `atlas-first-run-mapping` for bounded, token-intensive initial app mapping.
+
 ## Product Rules
 
 - Raw Android layout JSON is not committed by default.
