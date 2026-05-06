@@ -18,8 +18,8 @@ contracts unless a migration note explicitly approves a change.
 | `atlas learn --from-current-run --stage` | implemented as review proposal | implemented | proposals | no | no |
 | `atlas accept` | implemented | implemented | graph artifacts | no | no |
 | `atlas route` | implemented | implemented | no | no | no |
-| `atlas go` | implemented skeleton | implemented as route plan output | run artifacts when observing | no | no |
-| `atlas check` | implemented | implemented | no | yes for current | no |
+| `atlas go` | implemented skeleton | implemented edge tap execution | run artifacts when observing | yes | yes |
+| `atlas check` | implemented | implemented with current-screen matching | no | yes for current | no |
 | `atlas validate` | not implemented | pending | proposals/state | yes | maybe |
 | `atlas drift` | not implemented | pending | proposals | yes | no |
 | `atlas repair` | not implemented | pending | proposals | maybe | maybe |
@@ -59,6 +59,6 @@ expected file writes
 volatile fields ignored during comparison
 ```
 
-The first Rust CLI fixture set covers `init --dry-run`, route context mismatch,
-`observe`/`learn`, `layout --diff`, and `tap --selector` with fake Android/adb
-executables.
+The Rust CLI fixture set covers `init --dry-run`, route context mismatch,
+`observe`/`learn`, `layout --diff`, `tap --selector`, `go` edge execution, and
+`check --current` screen matching with fake Android/adb executables.

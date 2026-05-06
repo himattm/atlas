@@ -1,0 +1,11 @@
+[package]
+name = "atlas-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+
+[dependencies]
+atlas-schemas = { path = "../atlas-schemas" }
+serde_json.workspace = true
+sha2.workspace = true

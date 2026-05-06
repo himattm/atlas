@@ -3,11 +3,13 @@ use atlas_android::{
     layout_result, tap_label_result, tap_point_result, tap_selector_result, Adb, AndroidCli,
     SubprocessRunner,
 };
+use atlas_core::{identity_hash, match_screen, normalize_layout};
 use atlas_graph::{exit_code_for_status, resolve_route};
 use atlas_repo::{
     accept_proposal, load_context, load_graph, observe_start, observe_stop, record_action_event,
     record_observation_event, run_init, stage_observation_review_proposal,
 };
+use atlas_schemas::NavigationEdge;
 use atlas_schemas::{canonical_json, AtlasResult, RESULT_SCHEMA_VERSION};
 use clap::{Parser, Subcommand};
 use serde_json::json;
@@ -237,16 +239,51 @@ fn run(cli: Cli) -> Result<i32> {
                 print_json(&serde_json::to_value(result)?);
                 return Ok(code);
             }
+            let mut android = AndroidCli::new(SubprocessRunner);
+            let mut adb = Adb::new(SubprocessRunner);
+            let mut executed = Vec::new();
+            let mut layout_calls_total = 0;
+            let mut adb_taps_total = 0;
+            for edge in &plan.edges {
+                let selector = selector_for_edge(edge)?;
+                let action_result = tap_selector_result(
+                    &mut android,
+                    &mut adb,
+                    &selector,
+                    edge.intent
+                        .as_deref()
+                        .or(edge.action.description.as_deref()),
+                )?;
+                layout_calls_total += action_result["metrics"]["layout_calls_total"]
+                    .as_i64()
+                    .unwrap_or(0);
+                adb_taps_total += action_result["metrics"]["adb_taps_total"]
+                    .as_i64()
+                    .unwrap_or(0);
+                let action = action_result["action"].clone();
+                record_action_event(&root, "tap", action.clone(), edge.intent.as_deref())?;
+                executed.push(json!({
+                    "edge": edge.id,
+                    "selector": selector,
+                    "action": action
+                }));
+            }
             print_json(&json!({
                 "schema_version": RESULT_SCHEMA_VERSION,
                 "status": "ok",
-                "summary": "route execution planned",
+                "summary": "route executed",
                 "target": target,
                 "mode": mode,
                 "edge_ids": plan.edges.iter().map(|edge| edge.id.clone()).collect::<Vec<_>>(),
+                "executed": executed,
                 "preferred_path_used": plan.preferred_path_used,
                 "graph_fallback_used": plan.graph_fallback_used,
-                "estimated_layout_calls_saved": std::cmp::max(plan.edges.len(), 1)
+                "estimated_layout_calls_saved": std::cmp::max(plan.edges.len(), 1),
+                "metrics": {
+                    "layout_calls_total": layout_calls_total,
+                    "layout_json_returned_to_agent": false,
+                    "adb_taps_total": adb_taps_total
+                }
             }));
             Ok(0)
         }
@@ -254,10 +291,20 @@ fn run(cli: Cli) -> Result<i32> {
             if current || screen.is_none() {
                 let mut android = AndroidCli::new(SubprocessRunner);
                 let layout = layout_result(&mut android, false)?;
+                let graph = load_graph(&root)?;
+                let normalized = normalize_layout(&layout["layout"]);
+                let identity = identity_hash(&normalized);
+                let screen_match = match_screen(&normalized, graph.screens.into_values());
                 print_json(&json!({
                     "schema_version": RESULT_SCHEMA_VERSION,
                     "status": "ok",
-                    "current_screen": {"status": "unknown"},
+                    "current_screen": {
+                        "status": screen_match.status,
+                        "matched_screen": screen_match.matched_screen,
+                        "match_confidence": screen_match.match_confidence,
+                        "hash_matched": screen_match.hash_matched,
+                        "identity_hash": identity
+                    },
                     "metrics": {
                         "layout_calls_total": 1,
                         "layout_json_returned_to_agent": false,
@@ -318,6 +365,30 @@ fn parse_point(point: &str) -> Result<(i64, i64)> {
         .split_once(',')
         .ok_or_else(|| anyhow::anyhow!("--point must be X,Y"))?;
     Ok((x.trim().parse()?, y.trim().parse()?))
+}
+
+fn selector_for_edge(edge: &NavigationEdge) -> Result<String> {
+    let candidate = edge
+        .action
+        .selector_candidates
+        .iter()
+        .filter(|candidate| candidate.value.is_some())
+        .max_by(|left, right| {
+            left.score
+                .unwrap_or(0.0)
+                .partial_cmp(&right.score.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .ok_or_else(|| anyhow::anyhow!("edge {} has no executable selector candidate", edge.id))?;
+    let value = candidate.value.as_deref().unwrap_or_default();
+    let key = match candidate.kind.as_str() {
+        "visible_text" | "visible_text_fuzzy" => "text",
+        "accessibility" | "accessibility_or_semantic" => "content_description",
+        "resource_id" => "resource_id",
+        "test_tag" => "test_tag",
+        other => other,
+    };
+    Ok(format!("{key}={value}"))
 }
 
 fn doctor(root: &std::path::Path) -> serde_json::Value {

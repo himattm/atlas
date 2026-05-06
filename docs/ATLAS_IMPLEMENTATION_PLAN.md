@@ -27,6 +27,8 @@ under `.atlas/`, and returns compact JSON results for agents.
   proposals, skills, gitignore entries, and observation runs.
 - Android layer: `crates/atlas-android` wraps documented Android CLI commands
   and `adb shell input tap`.
+- Core layer: `crates/atlas-core` handles redaction-before-hashing,
+  normalization, identity hashes, and screen similarity matching.
 - Graph layer: `crates/atlas-graph` resolves named routes and graph fallback
   with context guards.
 
@@ -38,6 +40,7 @@ crates/
   atlas-schemas/
   atlas-repo/
   atlas-android/
+  atlas-core/
   atlas-graph/
   atlas-test-support/
 docs/
@@ -108,9 +111,9 @@ environment error, `7` schema/config error, and `8` context mismatch.
   idempotence, graph fallback, and Android command composition.
 - Rust CLI integration tests use temp repos and fake `android`/`adb` executables
   for `init`, `route`, `observe`, `learn`, `layout --diff`, and `tap --selector`.
-- Future parity tests should add live-device smoke coverage and richer
-  redaction/normalization fixtures before expanding `go` from plan output to
-  live route execution.
+- Future parity tests should add live-device smoke coverage, richer
+  redaction/normalization fixtures, and route postcondition verification after
+  `go` executes edge taps.
 
 ## Acceptance Demos
 

@@ -148,6 +148,134 @@ exit 2
     assert_eq!(payload["action"]["point"], json!({"x": 200, "y": 300}));
 }
 
+#[test]
+fn go_executes_route_edges_with_fake_android_and_adb() {
+    let temp = tempfile::tempdir().unwrap();
+    write_json(
+        &temp
+            .path()
+            .join(".atlas/graph/edges/edge_home_article.json"),
+        &json!({
+            "schema_version": "atlas.edge.v1",
+            "id": "edge_home_article",
+            "from_screen": "home",
+            "to_screen": "article-detail",
+            "action": {
+                "kind": "tap",
+                "selector_candidates": [
+                    {"kind": "test_tag", "value": "read_article", "score": 0.92}
+                ]
+            }
+        }),
+    );
+    write_json(
+        &temp.path().join(".atlas/routes/read-article.atlas.json"),
+        &json!({
+            "schema_version": "atlas.route.v1",
+            "name": "read-article",
+            "start": {"screen": "home"},
+            "target": {"screen": "article-detail"},
+            "preferred_edge_ids": ["edge_home_article"]
+        }),
+    );
+    let bin = fake_bin(temp.path());
+    write_executable(
+        &bin.join("android"),
+        r#"#!/bin/sh
+if [ "$1" = "layout" ]; then
+  printf '{"children":[{"testTag":"read_article","bounds":{"left":100,"top":200,"right":300,"bottom":400}}]}'
+  exit 0
+fi
+exit 2
+"#,
+    );
+    write_executable(
+        &bin.join("adb"),
+        r#"#!/bin/sh
+if [ "$1" = "shell" ] && [ "$2" = "input" ] && [ "$3" = "tap" ] && [ "$4" = "200" ] && [ "$5" = "300" ]; then
+  exit 0
+fi
+exit 2
+"#,
+    );
+    let output = atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["go", "read-article", "--current-screen", "home"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let payload: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(payload["status"], "ok");
+    assert_eq!(payload["summary"], "route executed");
+    assert_eq!(payload["executed"][0]["edge"], "edge_home_article");
+    assert_eq!(payload["metrics"]["layout_calls_total"], 1);
+    assert_eq!(payload["metrics"]["layout_json_returned_to_agent"], false);
+    assert_eq!(payload["metrics"]["adb_taps_total"], 1);
+}
+
+#[test]
+fn check_current_matches_known_screen_without_returning_layout_json() {
+    let temp = tempfile::tempdir().unwrap();
+    write_json(
+        &temp
+            .path()
+            .join(".atlas/graph/screens/screen_settings.json"),
+        &json!({
+            "schema_version": "atlas.screen.v1",
+            "id": "screen_settings",
+            "name": "settings",
+            "identity_hash": "sha256:not-fast-path",
+            "normalized": {
+                "schema_version": "atlas.normalized_layout.v1",
+                "elements": [
+                    {
+                        "role": "Column",
+                        "clickable": false,
+                        "enabled": true,
+                        "path": "0",
+                        "sibling_bucket": 0
+                    },
+                    {
+                        "role": "Button",
+                        "clickable": true,
+                        "enabled": true,
+                        "path": "0/0",
+                        "sibling_bucket": 0,
+                        "resource_id": "settings"
+                    }
+                ],
+                "role_distribution": {"Button": 1, "Column": 1},
+                "element_count": 2
+            }
+        }),
+    );
+    let bin = fake_bin(temp.path());
+    write_executable(
+        &bin.join("android"),
+        r#"#!/bin/sh
+if [ "$1" = "layout" ]; then
+  printf '{"class":"Column","children":[{"class":"Button","testTag":"settings","clickable":true}]}'
+  exit 0
+fi
+exit 2
+"#,
+    );
+    let output = atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["check", "--current"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let payload: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(payload["current_screen"]["status"], "matched");
+    assert_eq!(payload["current_screen"]["matched_screen"], "settings");
+    assert_eq!(payload["metrics"]["layout_json_returned_to_agent"], false);
+}
+
 fn atlas(dir: &Path) -> Command {
     let mut command = Command::cargo_bin("atlas").unwrap();
     command.current_dir(dir);

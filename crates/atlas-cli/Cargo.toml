@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 atlas-android = { path = "../atlas-android" }
+atlas-core = { path = "../atlas-core" }
 atlas-graph = { path = "../atlas-graph" }
 atlas-repo = { path = "../atlas-repo" }
 atlas-schemas = { path = "../atlas-schemas" }
