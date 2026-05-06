@@ -57,6 +57,7 @@ atlas go article-detail --current-screen home
 atlas check --current
 atlas drift
 atlas validate --all
+atlas validate --all --execute --current-screen home
 ```
 
 ## First-Run Agent Mapping
@@ -84,12 +85,11 @@ but do not accept or commit them until I approve.
 The agent should use this loop for each route:
 
 ```bash
-atlas observe start <route-name>
+atlas map --discover <route-name> --max-actions 5 --stage
 atlas layout
 atlas tap --selector "<kind>=<value>" --reason "<navigation reason>"
 atlas layout
-atlas observe stop
-atlas learn --from-current-run --stage
+atlas map --discover <route-name> --max-actions 5 --stage --finish
 ```
 
 Review staged proposals before accepting:

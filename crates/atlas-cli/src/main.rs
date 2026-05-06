@@ -6,9 +6,9 @@ use atlas_android::{
 use atlas_core::{identity_hash, match_screen, normalize_layout};
 use atlas_graph::{exit_code_for_status, resolve_route};
 use atlas_repo::{
-    accept_proposal, load_context, load_graph, observe_current_or_latest, observe_start,
-    observe_stop, read_json, record_action_event, record_observation_event, run_init,
-    stage_observation_review_proposal, stage_proposal_value,
+    accept_proposal, load_context, load_graph, observe_current, observe_current_or_latest,
+    observe_start, observe_stop, read_json, record_action_event, record_observation_event,
+    run_init, stage_observation_review_proposal, stage_proposal_value,
 };
 use atlas_schemas::NavigationEdge;
 use atlas_schemas::{canonical_json, AtlasResult, RESULT_SCHEMA_VERSION};
@@ -92,11 +92,25 @@ enum Commands {
         all: bool,
         #[arg(long = "changed-files")]
         changed_files: Option<String>,
+        #[arg(long)]
+        execute: bool,
+        #[arg(long)]
+        current_screen: Option<String>,
     },
     Repair {
         target: String,
         #[arg(long)]
         stage: bool,
+    },
+    Map {
+        #[arg(long)]
+        discover: Option<String>,
+        #[arg(long = "max-actions", default_value_t = 10)]
+        max_actions: usize,
+        #[arg(long)]
+        stage: bool,
+        #[arg(long)]
+        finish: bool,
     },
     Accept {
         proposal_id: String,
@@ -254,77 +268,10 @@ fn run(cli: Cli) -> Result<i32> {
             }
             let mut android = AndroidCli::new(SubprocessRunner);
             let mut adb = Adb::new(SubprocessRunner);
-            let mut executed = Vec::new();
-            let mut layout_calls_total = 0;
-            let mut adb_taps_total = 0;
-            for edge in &plan.edges {
-                let selector = selector_for_edge(edge)?;
-                let action_result = tap_selector_result(
-                    &mut android,
-                    &mut adb,
-                    &selector,
-                    edge.intent
-                        .as_deref()
-                        .or(edge.action.description.as_deref()),
-                )?;
-                layout_calls_total += action_result["metrics"]["layout_calls_total"]
-                    .as_i64()
-                    .unwrap_or(0);
-                adb_taps_total += action_result["metrics"]["adb_taps_total"]
-                    .as_i64()
-                    .unwrap_or(0);
-                let action = action_result["action"].clone();
-                record_action_event(&root, "tap", action.clone(), edge.intent.as_deref())?;
-                let verification = match_current_screen(&root, &mut android)?;
-                layout_calls_total += verification["metrics"]["layout_calls_total"]
-                    .as_i64()
-                    .unwrap_or(0);
-                let reached = verification["current_screen"]["matched_screen"]
-                    .as_str()
-                    .map(|screen| screen == edge.to_screen)
-                    .unwrap_or(false);
-                if !reached {
-                    print_json(&json!({
-                        "schema_version": RESULT_SCHEMA_VERSION,
-                        "status": "route_broken",
-                        "summary": "route edge did not reach expected screen",
-                        "edge": edge.id,
-                        "expected_screen": edge.to_screen,
-                        "observed": verification["current_screen"],
-                        "metrics": {
-                            "layout_calls_total": layout_calls_total,
-                            "layout_json_returned_to_agent": false,
-                            "adb_taps_total": adb_taps_total
-                        },
-                        "recommended_action": "inspect the app and stage a graph repair proposal"
-                    }));
-                    return Ok(3);
-                }
-                executed.push(json!({
-                    "edge": edge.id,
-                    "selector": selector,
-                    "action": action,
-                    "verification": verification["current_screen"]
-                }));
-            }
-            print_json(&json!({
-                "schema_version": RESULT_SCHEMA_VERSION,
-                "status": "ok",
-                "summary": "route executed",
-                "target": target,
-                "mode": mode,
-                "edge_ids": plan.edges.iter().map(|edge| edge.id.clone()).collect::<Vec<_>>(),
-                "executed": executed,
-                "preferred_path_used": plan.preferred_path_used,
-                "graph_fallback_used": plan.graph_fallback_used,
-                "estimated_layout_calls_saved": std::cmp::max(plan.edges.len(), 1),
-                "metrics": {
-                    "layout_calls_total": layout_calls_total,
-                    "layout_json_returned_to_agent": false,
-                    "adb_taps_total": adb_taps_total
-                }
-            }));
-            Ok(0)
+            let result = execute_route_plan(&root, &plan, &target, &mode, &mut android, &mut adb)?;
+            let code = exit_code_for_status(result["status"].as_str().unwrap_or("ok"));
+            print_json(&result);
+            Ok(code)
         }
         Commands::Check { current, screen } => {
             if current {
@@ -389,9 +336,23 @@ fn run(cli: Cli) -> Result<i32> {
             print_json(&result);
             Ok(code)
         }
-        Commands::Validate { all, changed_files } => {
+        Commands::Validate {
+            all,
+            changed_files,
+            execute,
+            current_screen,
+        } => {
             let mut android = AndroidCli::new(SubprocessRunner);
-            let result = validate_result(&root, &mut android, all, changed_files.as_deref())?;
+            let mut adb = Adb::new(SubprocessRunner);
+            let result = validate_result(
+                &root,
+                &mut android,
+                &mut adb,
+                all,
+                changed_files.as_deref(),
+                execute,
+                current_screen.as_deref(),
+            )?;
             let code = exit_code_for_status(result["status"].as_str().unwrap_or("ok"));
             print_json(&result);
             Ok(code)
@@ -417,6 +378,28 @@ fn run(cli: Cli) -> Result<i32> {
                 "human_approval_required": true
             }));
             Ok(1)
+        }
+        Commands::Map {
+            discover,
+            max_actions,
+            stage,
+            finish,
+        } => {
+            let target =
+                discover.ok_or_else(|| anyhow::anyhow!("map requires --discover <name>"))?;
+            if !stage {
+                anyhow::bail!("map --discover currently requires --stage");
+            }
+            let result = map_discover_result(&root, &target, max_actions, finish)?;
+            let code = if result["status"] == "budget_exhausted" {
+                1
+            } else if result["status"] == "needs_agent_action" {
+                0
+            } else {
+                exit_code_for_status(result["status"].as_str().unwrap_or("ok"))
+            };
+            print_json(&result);
+            Ok(code)
         }
         Commands::Accept { proposal_id } => {
             let written = accept_proposal(&root, &proposal_id)?;
@@ -444,7 +427,7 @@ fn stage_learned_or_review_proposal(
     let Some(metadata) = observe_current_or_latest(root)? else {
         anyhow::bail!("No observation run available");
     };
-    if let Some(proposal) = learned_proposal_for_run(&metadata)? {
+    if let Some(proposal) = learned_proposal_for_run(root, &metadata)? {
         let proposal_id = proposal["id"]
             .as_str()
             .unwrap_or("proposal-learned")
@@ -457,6 +440,7 @@ fn stage_learned_or_review_proposal(
 }
 
 fn learned_proposal_for_run(
+    root: &Path,
     metadata: &atlas_repo::ObservationMetadata,
 ) -> Result<Option<serde_json::Value>> {
     let run_path = PathBuf::from(&metadata.path);
@@ -467,76 +451,123 @@ fn learned_proposal_for_run(
     if observation_values.len() < 2 || action_values.is_empty() {
         return Ok(None);
     }
-    let before_layout = observation_values[0]["payload"].clone();
-    let after_layout = observation_values[observation_values.len() - 1]["payload"].clone();
-    let action = action_values[0]["payload"].clone();
-    let Some(selector) = action["selector"].as_str() else {
+    let transition_count = std::cmp::min(action_values.len(), observation_values.len() - 1);
+    if transition_count == 0 {
         return Ok(None);
-    };
-    let (selector_kind, selector_value) = selector
-        .split_once('=')
-        .map(|(kind, value)| (kind.to_string(), value.to_string()))
-        .unwrap_or_else(|| ("selector".to_string(), selector.to_string()));
+    }
+    if action_values
+        .iter()
+        .take(transition_count)
+        .any(|action| action["payload"]["selector"].as_str().is_none())
+    {
+        return Ok(None);
+    }
+
+    let graph = load_graph(root)?;
     let run_slug = slug_for_id(&metadata.name);
-    let start_screen_id = format!("screen_{}_start", run_slug);
-    let target_screen_id = format!("screen_{}", run_slug);
-    let edge_id = format!("edge_{}_start__{}", run_slug, run_slug);
-    let before_normalized = normalize_layout(&before_layout);
-    let after_normalized = normalize_layout(&after_layout);
-    let start_screen = json!({
-        "schema_version": "atlas.screen.v1",
-        "id": start_screen_id,
-        "name": format!("{}-start", run_slug),
-        "identity_hash": identity_hash(&before_normalized),
-        "normalized": before_normalized,
-        "aliases": []
-    });
-    let target_screen = json!({
-        "schema_version": "atlas.screen.v1",
-        "id": target_screen_id,
-        "name": metadata.name,
-        "identity_hash": identity_hash(&after_normalized),
-        "normalized": after_normalized,
-        "aliases": []
-    });
-    let edge = json!({
-        "schema_version": "atlas.edge.v1",
-        "id": edge_id,
-        "from_screen": start_screen["name"],
-        "to_screen": target_screen["name"],
-        "intent": format!("navigate to {}", metadata.name),
-        "action": {
-            "kind": "tap",
-            "description": action["reason"].as_str().unwrap_or("learned tap"),
-            "selector_candidates": [{
-                "kind": selector_kind,
-                "value": selector_value,
-                "score": 0.7
-            }]
-        },
-        "expectations": [{"kind": "screen_reached", "screen": target_screen["name"]}],
-        "learned_from": {"source": "observation_run", "run_id": metadata.run_id}
-    });
+    let mut changes = Vec::new();
+    let mut screen_names = Vec::new();
+    for (index, observation) in observation_values
+        .iter()
+        .enumerate()
+        .take(transition_count + 1)
+    {
+        let layout = observation["payload"].clone();
+        let normalized = normalize_layout(&layout);
+        let matched = match_screen(&normalized, graph.screens.values().cloned());
+        if matched.status == "matched" {
+            if let Some(name) = matched.matched_screen {
+                screen_names.push(name);
+                continue;
+            }
+        }
+        let (id, name) =
+            learned_screen_id_and_name(&run_slug, &metadata.name, index, transition_count);
+        screen_names.push(name.clone());
+        changes.push(json!({
+            "op": "add",
+            "object": {
+                "schema_version": "atlas.screen.v1",
+                "id": id,
+                "name": name,
+                "identity_hash": identity_hash(&normalized),
+                "normalized": normalized,
+                "aliases": []
+            }
+        }));
+    }
+
+    let mut edge_ids = Vec::new();
+    for index in 0..transition_count {
+        let action = action_values[index]["payload"].clone();
+        let selector = action["selector"].as_str().unwrap_or_default();
+        let (selector_kind, selector_value) = selector
+            .split_once('=')
+            .map(|(kind, value)| (kind.to_string(), value.to_string()))
+            .unwrap_or_else(|| ("selector".to_string(), selector.to_string()));
+        let edge_id = format!("edge_{}_{}__{}", run_slug, index, index + 1);
+        edge_ids.push(edge_id.clone());
+        changes.push(json!({
+            "op": "add",
+            "object": {
+                "schema_version": "atlas.edge.v1",
+                "id": edge_id,
+                "from_screen": screen_names[index],
+                "to_screen": screen_names[index + 1],
+                "intent": format!("navigate to {}", metadata.name),
+                "action": {
+                    "kind": "tap",
+                    "description": action["reason"].as_str().unwrap_or("learned tap"),
+                    "selector_candidates": [{
+                        "kind": selector_kind,
+                        "value": selector_value,
+                        "score": 0.7
+                    }]
+                },
+                "expectations": [{"kind": "screen_reached", "screen": screen_names[index + 1]}],
+                "learned_from": {"source": "observation_run", "run_id": metadata.run_id, "step": index}
+            }
+        }));
+    }
+
     let route = json!({
         "schema_version": "atlas.route.v1",
         "name": metadata.name,
-        "start": {"screen": start_screen["name"]},
-        "target": {"screen": target_screen["name"]},
-        "preferred_edge_ids": [edge["id"]],
+        "start": {"screen": screen_names.first().cloned().unwrap_or_else(|| format!("{}-start", run_slug))},
+        "target": {"screen": screen_names.last().cloned().unwrap_or_else(|| metadata.name.clone())},
+        "preferred_edge_ids": edge_ids,
         "allow_graph_fallback": true
     });
+    changes.push(json!({"op": "add", "object": route}));
+
     Ok(Some(json!({
         "schema_version": "atlas.proposal.v1",
         "id": format!("proposal-learn-{}", metadata.run_id),
         "kind": "learned_route",
-        "reason": "Learn screen, edge, and route objects from an observation run.",
-        "changes": [
-            {"op": "add", "object": start_screen},
-            {"op": "add", "object": target_screen},
-            {"op": "add", "object": edge},
-            {"op": "add", "object": route}
-        ]
+        "reason": "Learn screens, edges, and route objects from an observation run.",
+        "changes": changes
     })))
+}
+
+fn learned_screen_id_and_name(
+    run_slug: &str,
+    route_name: &str,
+    index: usize,
+    final_index: usize,
+) -> (String, String) {
+    if index == 0 {
+        (
+            format!("screen_{}_start", run_slug),
+            format!("{}-start", run_slug),
+        )
+    } else if index == final_index {
+        (format!("screen_{}", run_slug), route_name.to_string())
+    } else {
+        (
+            format!("screen_{}_step_{}", run_slug, index + 1),
+            format!("{}-step-{}", run_slug, index + 1),
+        )
+    }
 }
 
 fn slug_for_id(value: &str) -> String {
@@ -576,6 +607,91 @@ fn match_current_screen<R: CommandRunner>(
             "adb_taps_total": 0
         },
         "layout_observed": layout["layout"].is_object()
+    }))
+}
+
+fn execute_route_plan<AR: CommandRunner, DR: CommandRunner>(
+    root: &Path,
+    plan: &atlas_graph::RoutePlan,
+    target: &str,
+    mode: &str,
+    android: &mut AndroidCli<AR>,
+    adb: &mut Adb<DR>,
+) -> Result<serde_json::Value> {
+    let mut executed = Vec::new();
+    let mut layout_calls_total = 0;
+    let mut adb_taps_total = 0;
+    let mut final_screen = serde_json::Value::Null;
+    for edge in &plan.edges {
+        let selector = selector_for_edge(edge)?;
+        let action_result = tap_selector_result(
+            android,
+            adb,
+            &selector,
+            edge.intent
+                .as_deref()
+                .or(edge.action.description.as_deref()),
+        )?;
+        layout_calls_total += action_result["metrics"]["layout_calls_total"]
+            .as_i64()
+            .unwrap_or(0);
+        adb_taps_total += action_result["metrics"]["adb_taps_total"]
+            .as_i64()
+            .unwrap_or(0);
+        let action = action_result["action"].clone();
+        record_action_event(root, "tap", action.clone(), edge.intent.as_deref())?;
+        let verification = match_current_screen(root, android)?;
+        layout_calls_total += verification["metrics"]["layout_calls_total"]
+            .as_i64()
+            .unwrap_or(0);
+        final_screen = verification["current_screen"].clone();
+        let reached = final_screen["matched_screen"]
+            .as_str()
+            .map(|screen| screen == edge.to_screen)
+            .unwrap_or(false);
+        if !reached {
+            return Ok(json!({
+                "schema_version": RESULT_SCHEMA_VERSION,
+                "status": "route_broken",
+                "summary": "route edge did not reach expected screen",
+                "target": target,
+                "mode": mode,
+                "edge": edge.id,
+                "expected_screen": edge.to_screen,
+                "observed": final_screen,
+                "executed": executed,
+                "metrics": {
+                    "layout_calls_total": layout_calls_total,
+                    "layout_json_returned_to_agent": false,
+                    "adb_taps_total": adb_taps_total
+                },
+                "recommended_action": "inspect the app and stage a graph repair proposal"
+            }));
+        }
+        executed.push(json!({
+            "edge": edge.id,
+            "selector": selector,
+            "action": action,
+            "verification": final_screen
+        }));
+    }
+    Ok(json!({
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "status": "ok",
+        "summary": "route executed",
+        "target": target,
+        "mode": mode,
+        "edge_ids": plan.edges.iter().map(|edge| edge.id.clone()).collect::<Vec<_>>(),
+        "executed": executed,
+        "final_screen": final_screen,
+        "preferred_path_used": plan.preferred_path_used,
+        "graph_fallback_used": plan.graph_fallback_used,
+        "estimated_layout_calls_saved": std::cmp::max(plan.edges.len(), 1),
+        "metrics": {
+            "layout_calls_total": layout_calls_total,
+            "layout_json_returned_to_agent": false,
+            "adb_taps_total": adb_taps_total
+        }
     }))
 }
 
@@ -640,16 +756,19 @@ fn drift_result<R: CommandRunner>(
     Ok(result)
 }
 
-fn validate_result<R: CommandRunner>(
+fn validate_result<AR: CommandRunner, DR: CommandRunner>(
     root: &Path,
-    android: &mut AndroidCli<R>,
+    android: &mut AndroidCli<AR>,
+    adb: &mut Adb<DR>,
     all: bool,
     changed_files: Option<&str>,
+    execute: bool,
+    current_screen: Option<&str>,
 ) -> Result<serde_json::Value> {
     let drift = drift_result(root, android)?;
     let selected_routes = selected_routes_for_validation(root, all, changed_files)?;
     let status = drift["status"].as_str().unwrap_or("passed");
-    Ok(json!({
+    let mut result = json!({
         "schema_version": RESULT_SCHEMA_VERSION,
         "status": status,
         "summary": if status == "passed" { "validation passed" } else { "validation found graph drift" },
@@ -657,9 +776,180 @@ fn validate_result<R: CommandRunner>(
         "selected_routes": selected_routes,
         "impact_analysis": {
             "mode": if all { "all" } else if changed_files.is_some() { "changed_files" } else { "current" },
-            "precise": false
+            "precise": execute
         }
+    });
+    if !execute || status != "passed" {
+        return Ok(result);
+    }
+
+    let graph = load_graph(root)?;
+    let context = load_context(root);
+    let mut active_screen = current_screen.map(str::to_string).or_else(|| {
+        result["drift"]["current_screen"]["matched_screen"]
+            .as_str()
+            .map(str::to_string)
+    });
+    let mut route_results = Vec::new();
+    let mut skipped_routes = Vec::new();
+    let mut aggregate_status = "passed".to_string();
+
+    for route_name in selected_routes_for_validation(root, all, changed_files)? {
+        let Some(route) = graph.routes.get(&route_name) else {
+            skipped_routes.push(json!({"route": route_name, "reason": "route_unresolved"}));
+            continue;
+        };
+        let Some(screen) = active_screen.as_deref() else {
+            skipped_routes.push(json!({"route": route_name, "reason": "current_screen_unknown"}));
+            continue;
+        };
+        if route.start_screen() != Some(screen) {
+            skipped_routes.push(json!({
+                "route": route_name,
+                "reason": "start_screen_mismatch",
+                "expected_start": route.start_screen(),
+                "current_screen": screen
+            }));
+            continue;
+        }
+        let plan = resolve_route(&graph, &route_name, Some(screen), &context);
+        if !plan.context_mismatches.is_empty() {
+            skipped_routes.push(json!({
+                "route": route_name,
+                "reason": "context_mismatch",
+                "mismatches": plan.context_mismatches
+            }));
+            continue;
+        }
+        if plan.status != "ok" {
+            skipped_routes.push(json!({
+                "route": route_name,
+                "reason": "route_unresolved",
+                "status": plan.status
+            }));
+            continue;
+        }
+        let route_result = execute_route_plan(root, &plan, &route_name, "verified", android, adb)?;
+        if route_result["status"] != "ok" {
+            aggregate_status = route_result["status"]
+                .as_str()
+                .unwrap_or("route_broken")
+                .to_string();
+        }
+        if let Some(final_screen) = route_result["final_screen"]["matched_screen"].as_str() {
+            active_screen = Some(final_screen.to_string());
+        }
+        route_results.push(json!({
+            "route": route_name,
+            "result": route_result
+        }));
+        if aggregate_status != "passed" {
+            break;
+        }
+    }
+    result["status"] = json!(aggregate_status);
+    result["summary"] = json!(if aggregate_status == "passed" {
+        "validation passed"
+    } else {
+        "validation route execution failed"
+    });
+    result["route_results"] = json!(route_results);
+    result["skipped_routes"] = json!(skipped_routes);
+    result["final_screen"] = json!(active_screen);
+    Ok(result)
+}
+
+fn map_discover_result(
+    root: &Path,
+    target: &str,
+    max_actions: usize,
+    finish: bool,
+) -> Result<serde_json::Value> {
+    if max_actions == 0 {
+        anyhow::bail!("--max-actions must be greater than zero");
+    }
+    if let Some(metadata) = observe_current(root)? {
+        if metadata.name != target {
+            anyhow::bail!(
+                "observation run {} is already active for {}",
+                metadata.run_id,
+                metadata.name
+            );
+        }
+        let action_count = observation_action_count(&metadata)?;
+        if finish {
+            let stopped = observe_stop(root)?;
+            let (proposal_id, path, _) = stage_learned_or_review_proposal(root)?;
+            return Ok(json!({
+                "schema_version": RESULT_SCHEMA_VERSION,
+                "status": "changed_requires_review",
+                "summary": "finished discovery run and staged proposal",
+                "target": target,
+                "run": stopped,
+                "actions_recorded": action_count,
+                "max_actions": max_actions,
+                "proposal_id": proposal_id,
+                "proposal_path": path.display().to_string(),
+                "human_approval_required": true
+            }));
+        }
+        if action_count >= max_actions {
+            return Ok(json!({
+                "schema_version": RESULT_SCHEMA_VERSION,
+                "status": "budget_exhausted",
+                "summary": "discovery action budget exhausted",
+                "target": target,
+                "run": metadata,
+                "actions_recorded": action_count,
+                "max_actions": max_actions,
+                "recommended_next_command": format!("atlas map --discover {target} --max-actions {max_actions} --stage --finish")
+            }));
+        }
+        return Ok(json!({
+            "schema_version": RESULT_SCHEMA_VERSION,
+            "status": "needs_agent_action",
+            "summary": "continue bounded discovery with atlas layout and atlas tap",
+            "target": target,
+            "run": metadata,
+            "actions_recorded": action_count,
+            "max_actions": max_actions,
+            "budget_remaining": max_actions - action_count,
+            "allowed_next_commands": [
+                "atlas layout",
+                "atlas tap --selector \"<kind>=<value>\" --reason \"<why>\"",
+                format!("atlas map --discover {target} --max-actions {max_actions} --stage --finish")
+            ]
+        }));
+    }
+
+    if finish {
+        anyhow::bail!("no active discovery run to finish");
+    }
+    let metadata = observe_start(root, target)?;
+    let mut android = AndroidCli::new(SubprocessRunner);
+    let layout = layout_result(&mut android, false)?;
+    record_observation_event(root, "android_layout", layout["layout"].clone())?;
+    Ok(json!({
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "status": "needs_agent_action",
+        "summary": "started bounded discovery run",
+        "target": target,
+        "run": metadata,
+        "actions_recorded": 0,
+        "max_actions": max_actions,
+        "budget_remaining": max_actions,
+        "layout_observed": layout["layout"].is_object(),
+        "allowed_next_commands": [
+            "atlas layout",
+            "atlas tap --selector \"<kind>=<value>\" --reason \"<why>\"",
+            format!("atlas map --discover {target} --max-actions {max_actions} --stage --finish")
+        ]
     }))
+}
+
+fn observation_action_count(metadata: &atlas_repo::ObservationMetadata) -> Result<usize> {
+    let actions = read_json(&PathBuf::from(&metadata.path).join("actions.json"))?;
+    Ok(actions.as_array().map(Vec::len).unwrap_or(0))
 }
 
 fn selected_routes_for_validation(

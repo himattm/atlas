@@ -78,7 +78,9 @@ All agent-facing commands emit JSON. The global `--json`, `--quiet`, and
   tap X Y`, then observe compact state.
 - `atlas observe start NAME --json` and `atlas observe stop --json` manage raw
   run traces under `.atlas/runs/`.
-- `atlas learn --from-current-run --stage --json` stages graph proposals.
+- `atlas learn --from-current-run --stage --json` stages graph proposals,
+  preserving each observed tap transition as an edge when the run has enough
+  layout/action data.
 - `atlas accept PROPOSAL_ID --json` applies a proposal only when explicitly run.
 - `atlas route TARGET --json` returns a route plan by name, screen, alias, or
   intent, using graph fallback when allowed.
@@ -88,10 +90,11 @@ All agent-facing commands emit JSON. The global `--json`, `--quiet`, and
 - `atlas check [--current|SCREEN] --json` evaluates lightweight expectations.
 - `atlas drift --json`, `atlas validate --json`, and `atlas repair ... --stage`
   classify divergence and stage review proposals without mutating committed
-  graph objects.
-- `atlas map --discover --max-actions N --stage` remains future v1 work. It
-  should build on the same observe/learn/proposal path rather than introducing
-  silent graph mutation.
+  graph objects. `atlas validate` is dry by default; `--execute` opts into route
+  execution.
+- `atlas map --discover NAME --max-actions N --stage [--finish]` coordinates a
+  bounded assistant-led discovery run. Atlas manages observation and proposal
+  staging while the agent chooses selectors from layout output.
 
 Exit codes follow the brief: `0` success, `1` meaningful change, `2` expectation
 failure, `3` route failed, `4` selector drift, `5` unknown screen, `6`
@@ -116,11 +119,12 @@ environment error, `7` schema/config error, and `8` context mismatch.
   idempotence, graph fallback, and Android command composition.
 - Rust CLI integration tests use temp repos and fake `android`/`adb` executables
   for `init`, `route`, `observe`, `learn`, `layout --diff`, and `tap --selector`.
-- CLI integration tests now cover drift, validation proposal staging, learned
-  screen/edge/route proposals after stopped runs, and route postcondition
+- CLI integration tests now cover drift, validation proposal staging,
+  validation route execution, learned multi-step screen/edge/route proposals
+  after stopped runs, bounded map discovery, and route postcondition
   verification after `go` executes edge taps.
-- Future parity tests should add live-device smoke coverage, richer
-  redaction/normalization fixtures, and budgeted map discovery fixtures.
+- Future parity tests should add live-device smoke coverage and richer
+  redaction/normalization fixtures.
 
 ## Acceptance Demos
 

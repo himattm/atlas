@@ -186,6 +186,99 @@ exit 2
 }
 
 #[test]
+fn learn_stages_multi_step_route_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    let bin = fake_bin(temp.path());
+    write_executable(
+        &bin.join("android"),
+        r#"#!/bin/sh
+COUNT_FILE="$(dirname "$0")/multi-learn-count"
+COUNT=0
+if [ -f "$COUNT_FILE" ]; then COUNT=$(cat "$COUNT_FILE"); fi
+COUNT=$((COUNT + 1))
+printf "%s" "$COUNT" > "$COUNT_FILE"
+if [ "$1" = "layout" ]; then
+  if [ "$COUNT" = "1" ] || [ "$COUNT" = "2" ]; then
+    printf '{"class":"Column","children":[{"text":"Open","bounds":{"left":0,"top":0,"right":100,"bottom":100}}]}'
+  elif [ "$COUNT" = "3" ] || [ "$COUNT" = "4" ]; then
+    printf '{"class":"Column","children":[{"text":"Continue","bounds":{"left":0,"top":0,"right":100,"bottom":100}}]}'
+  else
+    printf '{"class":"Column","children":[{"class":"Text","text":"Done"}]}'
+  fi
+  exit 0
+fi
+exit 2
+"#,
+    );
+    write_executable(
+        &bin.join("adb"),
+        r#"#!/bin/sh
+if [ "$1" = "shell" ] && [ "$2" = "input" ] && [ "$3" = "tap" ]; then
+  exit 0
+fi
+exit 2
+"#,
+    );
+    atlas(temp.path())
+        .args(["observe", "start", "onboarding"])
+        .assert()
+        .success();
+    atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["layout"])
+        .assert()
+        .success();
+    atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["tap", "--selector", "text=Open", "--reason", "open"])
+        .assert()
+        .success();
+    atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["layout"])
+        .assert()
+        .success();
+    atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["tap", "--selector", "text=Continue", "--reason", "continue"])
+        .assert()
+        .success();
+    atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["layout"])
+        .assert()
+        .success();
+    atlas(temp.path())
+        .args(["observe", "stop"])
+        .assert()
+        .success();
+    let output = atlas(temp.path())
+        .args(["learn", "--from-current-run", "--stage"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let payload: Value = serde_json::from_slice(&output).unwrap();
+    let proposal = read_json_path(&proposal_path(temp.path(), &payload));
+    assert_eq!(proposal["kind"], "learned_route");
+    assert_eq!(proposal["changes"].as_array().unwrap().len(), 6);
+    let route = proposal["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|change| change["object"]["schema_version"] == "atlas.route.v1")
+        .unwrap();
+    assert_eq!(
+        route["object"]["preferred_edge_ids"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
 fn layout_diff_uses_fake_android_cli() {
     let temp = tempfile::tempdir().unwrap();
     let bin = fake_bin(temp.path());
@@ -438,6 +531,169 @@ exit 2
     assert!(payload["drift"]["proposal_path"].as_str().is_some());
 }
 
+#[test]
+fn validate_all_is_dry_by_default() {
+    let temp = tempfile::tempdir().unwrap();
+    write_home_to_article_graph(temp.path());
+    let bin = fake_bin(temp.path());
+    write_executable(
+        &bin.join("android"),
+        r#"#!/bin/sh
+if [ "$1" = "layout" ]; then
+  printf '{"class":"Column","children":[{"class":"Button","testTag":"read_article","clickable":true,"bounds":{"left":100,"top":200,"right":300,"bottom":400}}]}'
+  exit 0
+fi
+exit 2
+"#,
+    );
+    let output = atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["validate", "--all", "--current-screen", "home"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let payload: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(payload["status"], "passed");
+    assert_eq!(payload["impact_analysis"]["precise"], false);
+    assert!(payload["route_results"].is_null());
+}
+
+#[test]
+fn validate_all_execute_runs_matching_route() {
+    let temp = tempfile::tempdir().unwrap();
+    write_home_to_article_graph(temp.path());
+    let bin = fake_bin(temp.path());
+    write_executable(
+        &bin.join("android"),
+        r#"#!/bin/sh
+COUNT_FILE="$(dirname "$0")/validate-count"
+COUNT=0
+if [ -f "$COUNT_FILE" ]; then COUNT=$(cat "$COUNT_FILE"); fi
+COUNT=$((COUNT + 1))
+printf "%s" "$COUNT" > "$COUNT_FILE"
+if [ "$1" = "layout" ]; then
+  if [ "$COUNT" = "1" ] || [ "$COUNT" = "2" ]; then
+    printf '{"class":"Column","children":[{"class":"Button","testTag":"read_article","clickable":true,"bounds":{"left":100,"top":200,"right":300,"bottom":400}}]}'
+  else
+    printf '{"class":"Column","children":[{"class":"Text","text":"Article body"}]}'
+  fi
+  exit 0
+fi
+exit 2
+"#,
+    );
+    write_executable(
+        &bin.join("adb"),
+        r#"#!/bin/sh
+if [ "$1" = "shell" ] && [ "$2" = "input" ] && [ "$3" = "tap" ] && [ "$4" = "200" ] && [ "$5" = "300" ]; then
+  exit 0
+fi
+exit 2
+"#,
+    );
+    let output = atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["validate", "--all", "--execute", "--current-screen", "home"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let payload: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(payload["status"], "passed");
+    assert_eq!(payload["impact_analysis"]["precise"], true);
+    assert_eq!(payload["route_results"][0]["route"], "read-article");
+    assert_eq!(
+        payload["route_results"][0]["result"]["final_screen"]["matched_screen"],
+        "article-detail"
+    );
+}
+
+#[test]
+fn map_discover_starts_and_finishes_staged_proposal() {
+    let temp = tempfile::tempdir().unwrap();
+    let bin = fake_bin(temp.path());
+    write_executable(
+        &bin.join("android"),
+        r#"#!/bin/sh
+COUNT_FILE="$(dirname "$0")/map-count"
+COUNT=0
+if [ -f "$COUNT_FILE" ]; then COUNT=$(cat "$COUNT_FILE"); fi
+COUNT=$((COUNT + 1))
+printf "%s" "$COUNT" > "$COUNT_FILE"
+if [ "$1" = "layout" ]; then
+  if [ "$COUNT" = "1" ] || [ "$COUNT" = "2" ]; then
+    printf '{"class":"Column","children":[{"text":"Open","bounds":{"left":0,"top":0,"right":100,"bottom":100}}]}'
+  else
+    printf '{"class":"Column","children":[{"class":"Text","text":"Done"}]}'
+  fi
+  exit 0
+fi
+exit 2
+"#,
+    );
+    write_executable(
+        &bin.join("adb"),
+        r#"#!/bin/sh
+if [ "$1" = "shell" ] && [ "$2" = "input" ] && [ "$3" = "tap" ]; then
+  exit 0
+fi
+exit 2
+"#,
+    );
+    let started = atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args([
+            "map",
+            "--discover",
+            "welcome",
+            "--max-actions",
+            "1",
+            "--stage",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let started: Value = serde_json::from_slice(&started).unwrap();
+    assert_eq!(started["status"], "needs_agent_action");
+    atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["tap", "--selector", "text=Open", "--reason", "open"])
+        .assert()
+        .success();
+    atlas(temp.path())
+        .env("PATH", prepend_path(&bin))
+        .args(["layout"])
+        .assert()
+        .success();
+    let output = atlas(temp.path())
+        .args([
+            "map",
+            "--discover",
+            "welcome",
+            "--max-actions",
+            "1",
+            "--stage",
+            "--finish",
+        ])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let payload: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(payload["status"], "changed_requires_review");
+    assert!(payload["proposal_id"]
+        .as_str()
+        .unwrap()
+        .starts_with("proposal-learn-"));
+    assert!(proposal_path(temp.path(), &payload).exists());
+}
+
 fn atlas(dir: &Path) -> Command {
     let mut command = Command::cargo_bin("atlas").unwrap();
     command.current_dir(dir);
@@ -451,6 +707,15 @@ fn write_json(path: &Path, value: &Value) {
 
 fn read_json_path(path: &Path) -> Value {
     serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn proposal_path(root: &Path, payload: &Value) -> PathBuf {
+    let proposal_path = PathBuf::from(payload["proposal_path"].as_str().unwrap());
+    if proposal_path.is_absolute() {
+        proposal_path
+    } else {
+        root.join(proposal_path)
+    }
 }
 
 fn write_settings_screen(root: &Path) {
@@ -470,6 +735,70 @@ fn write_settings_screen(root: &Path) {
                 "role_distribution": {"Button": 1, "Column": 1},
                 "element_count": 2
             }
+        }),
+    );
+}
+
+fn write_home_to_article_graph(root: &Path) {
+    write_json(
+        &root.join(".atlas/graph/screens/screen_home.json"),
+        &json!({
+            "schema_version": "atlas.screen.v1",
+            "id": "screen_home",
+            "name": "home",
+            "identity_hash": "sha256:not-fast-path",
+            "normalized": {
+                "schema_version": "atlas.normalized_layout.v1",
+                "elements": [
+                    {"role": "Column", "clickable": false, "enabled": true, "path": "0", "sibling_bucket": 0},
+                    {"role": "Button", "clickable": true, "enabled": true, "path": "0/0", "sibling_bucket": 0, "resource_id": "read_article"}
+                ],
+                "role_distribution": {"Button": 1, "Column": 1},
+                "element_count": 2
+            }
+        }),
+    );
+    write_json(
+        &root.join(".atlas/graph/screens/screen_article_detail.json"),
+        &json!({
+            "schema_version": "atlas.screen.v1",
+            "id": "screen_article_detail",
+            "name": "article-detail",
+            "identity_hash": "sha256:not-fast-path",
+            "normalized": {
+                "schema_version": "atlas.normalized_layout.v1",
+                "elements": [
+                    {"role": "Column", "clickable": false, "enabled": true, "path": "0", "sibling_bucket": 0},
+                    {"role": "Text", "clickable": false, "enabled": true, "path": "0/0", "sibling_bucket": 0, "text_class": "medium"}
+                ],
+                "role_distribution": {"Column": 1, "Text": 1},
+                "element_count": 2
+            }
+        }),
+    );
+    write_json(
+        &root.join(".atlas/graph/edges/edge_home_article.json"),
+        &json!({
+            "schema_version": "atlas.edge.v1",
+            "id": "edge_home_article",
+            "from_screen": "home",
+            "to_screen": "article-detail",
+            "action": {
+                "kind": "tap",
+                "selector_candidates": [
+                    {"kind": "test_tag", "value": "read_article", "score": 0.92}
+                ]
+            }
+        }),
+    );
+    write_json(
+        &root.join(".atlas/routes/read-article.atlas.json"),
+        &json!({
+            "schema_version": "atlas.route.v1",
+            "name": "read-article",
+            "start": {"screen": "home"},
+            "target": {"screen": "article-detail"},
+            "preferred_edge_ids": ["edge_home_article"]
         }),
     );
 }

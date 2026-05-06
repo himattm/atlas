@@ -77,15 +77,14 @@ Prerequisites:
 
 Mapping workflow for each route:
 1. Choose a short route name such as `settings`, `article-detail`, or `profile-edit`.
-2. Run `atlas observe start <route-name>`.
+2. Run `atlas map --discover <route-name> --max-actions 5 --stage`.
 3. Run `atlas layout` and inspect the current screen.
 4. Choose stable selectors in this order: test tag, resource id, accessibility/content description, stable visible text. Avoid coordinate taps unless there is no usable selector.
 5. Run `atlas tap --selector "<kind>=<value>" --reason "<why this moves toward the route>"`.
 6. Run `atlas layout` after each meaningful transition.
 7. Repeat only until the named route target is reached. Avoid unbounded crawling.
-8. Run `atlas observe stop`.
-9. Run `atlas learn --from-current-run --stage`.
-10. Record the proposal id/path for the user. Do not run `atlas accept` unless the user explicitly approves accepting staged graph changes.
+8. Run `atlas map --discover <route-name> --max-actions 5 --stage --finish`.
+9. Record the proposal id/path for the user. Do not run `atlas accept` unless the user explicitly approves accepting staged graph changes.
 
 After mapping:
 - Run `atlas validate --all` when at least one route has been accepted.
@@ -752,7 +751,7 @@ mod tests {
         assert!(skill.contains("First-Run Mapping Mode"));
         assert!(skill.contains("token-intensive"));
         assert!(skill.contains("do not accept or commit"));
-        assert!(skill.contains("atlas learn --from-current-run --stage"));
+        assert!(skill.contains("atlas map --discover <route-name> --max-actions 5 --stage"));
         assert!(skill.contains("Use this skill one time"));
 
         let navigation_skill = fs::read_to_string(

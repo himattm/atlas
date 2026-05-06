@@ -15,15 +15,15 @@ contracts unless a migration note explicitly approves a change.
 | `atlas tap --label` | implemented | implemented | run artifacts when observing | yes | yes |
 | `atlas observe start` | implemented | implemented | yes, gitignored | no | no |
 | `atlas observe stop` | implemented | implemented | yes, gitignored | no | no |
-| `atlas learn --from-current-run --stage` | implemented as review proposal | implemented | proposals | no | no |
+| `atlas learn --from-current-run --stage` | implemented as review proposal | implemented with multi-step route proposals | proposals | no | no |
 | `atlas accept` | implemented | implemented | graph artifacts | no | no |
 | `atlas route` | implemented | implemented | no | no | no |
 | `atlas go` | implemented skeleton | implemented edge tap execution | run artifacts when observing | yes | yes |
 | `atlas check` | implemented | implemented with current-screen matching | no | yes for current | no |
-| `atlas validate` | not implemented | pending | proposals/state | yes | maybe |
-| `atlas drift` | not implemented | pending | proposals | yes | no |
-| `atlas repair` | not implemented | pending | proposals | maybe | maybe |
-| `atlas map --discover` | not implemented | pending | proposals/runs | yes | yes |
+| `atlas validate` | not implemented | implemented; dry by default, `--execute` runs selected routes | proposals/state | yes | yes with `--execute` |
+| `atlas drift` | not implemented | implemented | proposals | yes | no |
+| `atlas repair` | not implemented | implemented as staged review proposal | proposals | no | no |
+| `atlas map --discover` | not implemented | implemented as bounded assistant loop | proposals/runs | yes | yes through agent-selected taps |
 
 ## Stable Exit Codes
 
@@ -60,5 +60,6 @@ volatile fields ignored during comparison
 ```
 
 The Rust CLI fixture set covers `init --dry-run`, route context mismatch,
-`observe`/`learn`, `layout --diff`, `tap --selector`, `go` edge execution, and
-`check --current` screen matching with fake Android/adb executables.
+`observe`/multi-step `learn`, `layout --diff`, `tap --selector`, `go` edge
+execution, `check --current`, `drift`, `validate --execute`, and
+`map --discover` with fake Android/adb executables.
