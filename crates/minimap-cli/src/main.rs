@@ -34,17 +34,21 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Initialize Minimap in this repo (creates .minimap/ layout and agent skills).
     Init {
         #[arg(long)]
         dry_run: bool,
         #[arg(long, default_value = "auto")]
         agents: String,
     },
+    /// Diagnose the Minimap environment (config, graph dirs, android/adb on PATH).
     Doctor,
+    /// Capture the current Android UI as redacted layout JSON; pass --diff for an in-session diff.
     Layout {
         #[arg(long)]
         diff: bool,
     },
+    /// Tap a UI element by --selector kind=value, --point X,Y, or --label N (with --screenshot); pass --reason to record intent.
     Tap {
         #[arg(long)]
         selector: Option<String>,
@@ -59,21 +63,25 @@ enum Commands {
         #[arg(long, default_value = "verified")]
         mode: String,
     },
+    /// Start or stop a named observation run that records layouts and taps under .minimap/runs/.
     Observe {
         #[command(subcommand)]
         command: ObserveCommand,
     },
+    /// Stage a learned graph proposal (screens, edges, route) from the current observation run; requires --from-current-run --stage.
     Learn {
         #[arg(long)]
         from_current_run: bool,
         #[arg(long)]
         stage: bool,
     },
+    /// Resolve the planned navigation path to a screen or route from the current screen (no device action).
     Route {
         target: String,
         #[arg(long)]
         current_screen: Option<String>,
     },
+    /// Resolve and execute a route to the target, verifying each step and aborting on drift.
     Go {
         target: String,
         #[arg(long)]
@@ -81,12 +89,15 @@ enum Commands {
         #[arg(long, default_value = "verified")]
         mode: String,
     },
+    /// Match the current Android screen against the committed graph, or check a named screen's context guard.
     Check {
         #[arg(long)]
         current: bool,
         screen: Option<String>,
     },
+    /// Compare the current app state to the committed graph; stages a review proposal if drifted.
     Drift,
+    /// Validate routes against the live device; --all, --changed-files <path>, or --execute --current-screen <name> for live runs.
     Validate {
         #[arg(long)]
         all: bool,
@@ -97,11 +108,13 @@ enum Commands {
         #[arg(long)]
         current_screen: Option<String>,
     },
+    /// Stage a proposal to repair a drifted graph object (selector, screen, edge); requires --stage.
     Repair {
         target: String,
         #[arg(long)]
         stage: bool,
     },
+    /// Bounded first-run discovery loop; requires --discover <name> --stage. Pass --finish to stop the run and stage the learned proposal.
     Map {
         #[arg(long)]
         discover: Option<String>,
@@ -112,6 +125,7 @@ enum Commands {
         #[arg(long)]
         finish: bool,
     },
+    /// Accept a staged proposal by id; the only command that mutates the committed graph.
     Accept {
         proposal_id: String,
     },
@@ -119,7 +133,9 @@ enum Commands {
 
 #[derive(Debug, Subcommand)]
 enum ObserveCommand {
+    /// Begin a named observation run; subsequent layout and tap calls record into it.
     Start { name: String },
+    /// Stop the active observation run and finalize its artifacts under .minimap/runs/.
     Stop,
 }
 

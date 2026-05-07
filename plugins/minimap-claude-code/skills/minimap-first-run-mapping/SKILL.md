@@ -26,7 +26,10 @@ Use this skill one time for an initial app map, or later only with a specific bo
 
 Prerequisites:
 - The Android app is already built, installed, launched, and on the screen where mapping should begin.
-- `minimap`, `android`, and `adb` are on PATH.
+- `minimap`, `android`, and `adb` are on PATH. Claude Code plugins cannot install binaries, so if `minimap --version` fails, ask the user to install it first:
+  - Homebrew: `brew install himattm/minimap/minimap`
+  - Cargo: `cargo install minimap-cli`
+  - From source: `cargo install --git https://github.com/himattm/minimap minimap-cli`
 - Run `minimap init --agents all` if Minimap has not been initialized.
 - Run `minimap doctor` and fix blocking environment issues before mapping.
 
