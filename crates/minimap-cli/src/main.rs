@@ -126,9 +126,7 @@ enum Commands {
         finish: bool,
     },
     /// Accept a staged proposal by id; the only command that mutates the committed graph.
-    Accept {
-        proposal_id: String,
-    },
+    Accept { proposal_id: String },
 }
 
 #[derive(Debug, Subcommand)]
