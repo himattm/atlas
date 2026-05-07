@@ -344,7 +344,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "minimap-android"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "serde",
@@ -354,7 +354,7 @@ dependencies = [
 
 [[package]]
 name = "minimap-cli"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -371,7 +371,7 @@ dependencies = [
 
 [[package]]
 name = "minimap-core"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "minimap-schemas",
  "serde_json",
@@ -380,7 +380,7 @@ dependencies = [
 
 [[package]]
 name = "minimap-graph"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "minimap-repo",
@@ -392,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "minimap-repo"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "minimap-schemas",
@@ -403,7 +403,7 @@ dependencies = [
 
 [[package]]
 name = "minimap-schemas"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "serde",
@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "minimap-test-support"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "serde_json",
