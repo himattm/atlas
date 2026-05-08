@@ -46,7 +46,13 @@ minimap init --agents all
 minimap doctor
 ```
 
-Explore an unknown route:
+`minimap init` creates an empty graph under `.minimap/`. That is the expected
+starting state — Minimap is useful immediately, and the graph fills in as you
+naturally use the app. There is no required baseline survey.
+
+### Grow the graph one screen at a time
+
+While you are using the app, record the route you just took:
 
 ```bash
 minimap observe start article-detail
@@ -63,7 +69,12 @@ Review the staged proposal, then explicitly accept it:
 minimap accept <proposal-id>
 ```
 
-Reuse and validate:
+Repeat for the next screen the next time you (or an agent) navigate somewhere
+worth remembering. The graph grows over time without a separate setup phase.
+
+### Reuse and validate
+
+Once a route is in the graph, reuse and validate it:
 
 ```bash
 minimap route article-detail --current-screen home
@@ -74,18 +85,23 @@ minimap validate --all
 minimap validate --all --execute --current-screen home
 ```
 
-## First-Run Agent Mapping
+## First-Run Agent Mapping (optional)
 
 `minimap init --agents all` installs two repo-local skills for supported agents:
-`minimap-app-navigation` for normal route reuse and `minimap-first-run-mapping` for
-initial discovery.
+`minimap-app-navigation` for everyday navigation and incremental graph growth, and
+`minimap-first-run-mapping` for optional bulk surveys.
 
-First-run mapping is token-intensive: the agent has to inspect Android layout
-JSON, decide what to tap, navigate the launched app, and record routes before
-Minimap can reuse the graph. Keep the first pass bounded to a few important flows.
-Use the first-run skill once for an initial app map, or later only for a bounded
-reason such as a new feature area, a major UI redesign, a new auth/onboarding
-context, or explicit additional route coverage.
+Most users will not need first-run mapping. The incremental flow above grows the
+graph naturally over time, one screen per session, as the app is actually used.
+
+If you want a quick bulk pass over many flows at once — for example, seeding a
+brand-new repo with coverage of the settings, profile, and article-detail flows
+in a single sustained run — the `minimap-first-run-mapping` skill exists. It is
+token-intensive: the agent has to inspect Android layout JSON, decide what to
+tap, navigate the launched app, and record many routes in one sitting. Invoke it
+only when you explicitly want that bulk pass, or for a bounded reason such as a
+major UI redesign, a new auth/onboarding context, or explicit additional route
+coverage across multiple flows.
 
 Example prompt:
 
@@ -139,8 +155,10 @@ For local development from a checkout:
 
 The plugin includes:
 
-- `minimap-app-navigation` for normal Minimap route reuse and validation.
-- `minimap-first-run-mapping` for bounded, token-intensive initial app mapping.
+- `minimap-app-navigation` for everyday Minimap navigation, incremental graph
+  growth one screen at a time, route reuse, and validation.
+- `minimap-first-run-mapping` for optional bounded bulk surveys when the user
+  explicitly asks to map many flows at once.
 
 ## Product Rules
 

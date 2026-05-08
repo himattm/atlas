@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Claude Code plugins for Minimap Android navigation memory.",
-    "version": "0.1.2"
+    "version": "0.1.3"
   },
   "plugins": [
     {
       "name": "minimap",
       "source": "./plugins/minimap-claude-code",
       "description": "Minimap route reuse and first-run mapping skills for Android codebases.",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "author": {
         "name": "Matt McKenna"
       }

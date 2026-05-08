@@ -1,6 +1,6 @@
 ---
 name: minimap-first-run-mapping
-description: Use only when the user explicitly asks to perform first-run mapping, create an initial Minimap graph, map a new area of the app, explore a launched Android app for navigation memory, or record known routes from scratch. This is token-intensive and should be bounded, staged, and reviewed.
+description: Use only when the user explicitly asks for a bounded bulk survey of the launched Android app — phrases like "map the whole app", "do first-run mapping", "bulk-map the app", "do an initial pass over <list of flows>", or "explore the app comprehensively." Do NOT fire on "use minimap", "this is a fresh repo", "navigate to X", "build the graph", or "record this route" — those are everyday incremental work and belong to minimap-app-navigation. For incremental mapping (one screen at a time as the user navigates), use minimap-app-navigation instead.
 metadata:
   author: minimap
   version: "1.0"
@@ -8,21 +8,24 @@ metadata:
 
 # Minimap First-Run Mapping Skill
 
-Minimap first-run mapping creates initial navigation memory for a launched Android app. This skill is intentionally separate from everyday Minimap navigation because it is expensive: the agent must inspect Android layout JSON, decide what to tap, navigate the app, and record routes before Minimap can reuse the graph.
+If you found this skill via a vague trigger like "use minimap on this app", "this repo has no .minimap yet", or "navigate to X", stop and use `minimap-app-navigation` instead — it handles incremental mapping and is the right tool for everyday Minimap work. This skill is only for bounded bulk surveys the user explicitly asked for.
+
+Minimap first-run mapping does a deliberate bulk pass over a launched Android app to seed navigation memory across many flows at once. It is intentionally separate from everyday Minimap navigation because it is expensive: the agent must inspect Android layout JSON, decide what to tap, navigate the app, and record routes in a single sustained session.
 
 Stage learned graph updates, but do not accept or commit them without explicit user approval.
 
 ## First-Run Mapping Mode
 
-Use this mode when the user asks to map the app, create an initial Minimap graph, do first-run mapping, explore the launched app, record known routes, or build navigation memory from scratch.
+Use this mode only when the user has explicitly asked for a bulk survey: "map the whole app", "do first-run mapping", "bulk-map the app", "do an initial pass over <flows>", "explore the app comprehensively." Anything narrower — a single route, a fresh repo, "build the graph over time" — belongs to `minimap-app-navigation`.
 
 Warn the user before starting: first-run mapping is token-intensive. Keep the run bounded by the user's requested scope. If no scope is given, map a small set of high-value flows first, then report what remains.
 
-Use this skill one time for an initial app map, or later only with a specific bounded reason:
-- A new feature area has no Minimap route yet.
-- A major UI redesign invalidated existing routes.
-- A separate app context needs mapping, such as logged-out, logged-in, onboarding, permission-gated, or feature-flagged states.
-- The user explicitly asks for additional route coverage.
+Bounded reasons to invoke this skill:
+- The user explicitly requests a bulk initial app map.
+- A new feature area needs broad coverage in one pass.
+- A major UI redesign invalidated existing routes and a re-survey is requested.
+- A separate app context (logged-out, logged-in, onboarding, permission-gated, feature-flagged) needs mapping.
+- The user explicitly asks for additional route coverage across multiple flows.
 
 Prerequisites:
 - The Android app is already built, installed, launched, and on the screen where mapping should begin.

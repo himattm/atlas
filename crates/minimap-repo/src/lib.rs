@@ -30,7 +30,7 @@ pub const MINIMAP_DIRS: &[&str] = &[
 
 pub const APP_NAVIGATION_SKILL_BODY: &str = r#"---
 name: minimap-app-navigation
-description: Use when working in an Android codebase and needing to navigate the launched app, inspect Android layout JSON, use android layout, use android layout --diff, tap UI elements, validate screens, learn routes, reuse known navigation, or update the repo's Minimap graph. Before calling android layout or raw adb tap commands directly, check Minimap first.
+description: Use in an Android codebase for any Minimap work — navigating the launched app, inspecting Android layout JSON, running android layout or android layout --diff, tapping UI elements, validating screens, learning routes, reusing known navigation, or growing the repo's Minimap graph one screen at a time even when no graph exists yet. Before calling android layout or raw adb tap commands directly, check Minimap first.
 metadata:
   author: minimap
   version: "1.0"
@@ -41,11 +41,46 @@ metadata:
 Minimap is this repo's shared navigation memory and soft validation layer for AI agents working in this Android codebase.
 
 Use Minimap before raw Android layout or adb tap commands. Stage learned graph updates, but do not accept or commit them without explicit user approval.
+
+## Incremental mapping
+
+Minimap graphs grow one screen at a time. An empty `.minimap/` after `minimap init` is normal — the graph fills in as the user navigates the app. Do not treat "no graph yet" as a reason to fall back to raw `android` or `adb` commands.
+
+When the user asks you to navigate to a route Minimap does not yet know, treat that navigation itself as a chance to record the route. Run the lightweight loop below, stage a proposal, and surface the proposal id. Do not auto-`accept` — wait for user approval.
+
+Lightweight loop for adding one screen:
+
+```bash
+minimap observe start <short-route-name>
+minimap layout
+minimap tap --selector "<kind>=<value>" --reason "<why>"
+minimap layout
+minimap observe stop
+minimap learn --from-current-run --stage
+```
+
+Then report the proposal id and stop.
+
+Selector preference (most stable first): test tag, resource id, accessibility/content description, stable visible text. Avoid coordinate taps unless nothing else is usable.
+
+When the graph already has the route, reuse it: `minimap route`, `minimap go`, `minimap check`. Run `minimap drift` or `minimap validate --all` when verifying existing screens.
+
+Always stage. Never `minimap accept` without explicit user approval.
+
+## Prerequisites
+
+The `minimap` CLI must be on `PATH`. Claude Code plugins cannot install binaries, so if `minimap --version` fails, ask the user to install it before continuing:
+
+- Homebrew: `brew install himattm/minimap/minimap`
+- Cargo: `cargo install minimap-cli`
+- From source: `cargo install --git https://github.com/himattm/minimap minimap-cli`
+
+`android` and `adb` must also be on `PATH` for any layout or tap commands.
 "#;
 
 pub const FIRST_RUN_MAPPING_SKILL_BODY: &str = r#"---
 name: minimap-first-run-mapping
-description: Use only when the user explicitly asks to perform first-run mapping, create an initial Minimap graph, map a new area of the app, explore a launched Android app for navigation memory, or record known routes from scratch. This is token-intensive and should be bounded, staged, and reviewed.
+description: Use only when the user explicitly asks for a bounded bulk survey of the launched Android app — phrases like "map the whole app", "do first-run mapping", "bulk-map the app", "do an initial pass over <list of flows>", or "explore the app comprehensively." Do NOT fire on "use minimap", "this is a fresh repo", "navigate to X", "build the graph", or "record this route" — those are everyday incremental work and belong to minimap-app-navigation. For incremental mapping (one screen at a time as the user navigates), use minimap-app-navigation instead.
 metadata:
   author: minimap
   version: "1.0"
@@ -53,25 +88,31 @@ metadata:
 
 # Minimap First-Run Mapping Skill
 
-Minimap first-run mapping creates initial navigation memory for a launched Android app. This skill is intentionally separate from everyday Minimap navigation because it is expensive: the agent must inspect Android layout JSON, decide what to tap, navigate the app, and record routes before Minimap can reuse the graph.
+If you found this skill via a vague trigger like "use minimap on this app", "this repo has no .minimap yet", or "navigate to X", stop and use `minimap-app-navigation` instead — it handles incremental mapping and is the right tool for everyday Minimap work. This skill is only for bounded bulk surveys the user explicitly asked for.
+
+Minimap first-run mapping does a deliberate bulk pass over a launched Android app to seed navigation memory across many flows at once. It is intentionally separate from everyday Minimap navigation because it is expensive: the agent must inspect Android layout JSON, decide what to tap, navigate the app, and record routes in a single sustained session.
 
 Stage learned graph updates, but do not accept or commit them without explicit user approval.
 
 ## First-Run Mapping Mode
 
-Use this mode when the user asks to map the app, create an initial Minimap graph, do first-run mapping, explore the launched app, record known routes, or build navigation memory from scratch.
+Use this mode only when the user has explicitly asked for a bulk survey: "map the whole app", "do first-run mapping", "bulk-map the app", "do an initial pass over <flows>", "explore the app comprehensively." Anything narrower — a single route, a fresh repo, "build the graph over time" — belongs to `minimap-app-navigation`.
 
 Warn the user before starting: first-run mapping is token-intensive. Keep the run bounded by the user's requested scope. If no scope is given, map a small set of high-value flows first, then report what remains.
 
-Use this skill one time for an initial app map, or later only with a specific bounded reason:
-- A new feature area has no Minimap route yet.
-- A major UI redesign invalidated existing routes.
-- A separate app context needs mapping, such as logged-out, logged-in, onboarding, permission-gated, or feature-flagged states.
-- The user explicitly asks for additional route coverage.
+Bounded reasons to invoke this skill:
+- The user explicitly requests a bulk initial app map.
+- A new feature area needs broad coverage in one pass.
+- A major UI redesign invalidated existing routes and a re-survey is requested.
+- A separate app context (logged-out, logged-in, onboarding, permission-gated, feature-flagged) needs mapping.
+- The user explicitly asks for additional route coverage across multiple flows.
 
 Prerequisites:
 - The Android app is already built, installed, launched, and on the screen where mapping should begin.
-- `minimap`, `android`, and `adb` are on PATH.
+- `minimap`, `android`, and `adb` are on PATH. Claude Code plugins cannot install binaries, so if `minimap --version` fails, ask the user to install it first:
+  - Homebrew: `brew install himattm/minimap/minimap`
+  - Cargo: `cargo install minimap-cli`
+  - From source: `cargo install --git https://github.com/himattm/minimap minimap-cli`
 - Run `minimap init --agents all` if Minimap has not been initialized.
 - Run `minimap doctor` and fix blocking environment issues before mapping.
 
@@ -755,7 +796,8 @@ mod tests {
         assert!(skill.contains("token-intensive"));
         assert!(skill.contains("do not accept or commit"));
         assert!(skill.contains("minimap map --discover <route-name> --max-actions 5 --stage"));
-        assert!(skill.contains("Use this skill one time"));
+        assert!(skill.contains("only for bounded bulk surveys"));
+        assert!(skill.contains("use `minimap-app-navigation` instead"));
 
         let navigation_skill = fs::read_to_string(
             temp.path()

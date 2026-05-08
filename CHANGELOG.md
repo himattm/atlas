@@ -2,6 +2,18 @@
 
 All notable changes to Minimap are documented here.
 
+## 0.1.3 - 2026-05-08
+
+### Changed
+
+- Reframed Minimap as incremental from the start. `minimap init` now produces a useful empty graph; the graph fills in one screen at a time as the user (or an agent) navigates the app. The bulk "first-run mapping" survey is now optional, not a prerequisite.
+
+### Documentation
+
+- `minimap-app-navigation` skill now owns incremental mapping. Its description advertises growing the graph "even when no graph exists yet," and its body documents the lightweight `observe → tap → layout → learn --stage` loop, selector preference, and the rule that unknown-route navigation is a chance to record the route.
+- `minimap-first-run-mapping` skill description tightened to bulk-survey triggers only ("map the whole app", "do first-run mapping", etc.) and now explicitly redirects everyday triggers ("use minimap", "fresh repo", "navigate to X", "record this route") to `minimap-app-navigation`.
+- README "Basic Workflow" leads with `minimap init` + a "Grow the graph one screen at a time" subsection. First-Run Agent Mapping is now labeled optional with a "most users won't need it" note.
+
 ## 0.1.2 - 2026-05-07
 
 ### Changed

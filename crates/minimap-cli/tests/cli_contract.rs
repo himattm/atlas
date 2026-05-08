@@ -53,7 +53,8 @@ fn claude_plugin_marketplace_declares_minimap_skills() {
     )
     .unwrap();
     assert!(first_run_skill.contains("token-intensive"));
-    assert!(first_run_skill.contains("Use this skill one time"));
+    assert!(first_run_skill.contains("only for bounded bulk surveys"));
+    assert!(first_run_skill.contains("use `minimap-app-navigation` instead"));
 }
 
 #[test]

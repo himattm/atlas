@@ -1,7 +1,7 @@
 {
   "name": "minimap",
   "description": "Minimap skills for Claude Code: route reuse and first-run mapping for Android app navigation memory.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "author": {
     "name": "Matt McKenna"
   },
