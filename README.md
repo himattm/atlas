@@ -3,7 +3,7 @@
 Give AI agents a map of your Android app.
 
 Minimap is shared navigation memory and soft validation for AI agents working in
-Android codebases. It wraps documented Android CLI and `adb` primitives, records
+Android codebases. It wraps documented [`android` CLI](https://developer.android.com/tools/agents/android-cli) and [`adb`](https://developer.android.com/tools/adb) primitives, records
 navigation runs, stores distilled graph artifacts under `.minimap/`, and lets later
 agents reuse known routes instead of rediscovering the UI.
 
